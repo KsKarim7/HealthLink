@@ -1,0 +1,348 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design system definition for the Doctor-Patient Accountability System.
+ *
+ * Theme: deep teal / medical-dashboard.
+ * Light mode only; dark mode is handled by shadcn's default dark block if ever toggled.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* App-specific semantic tokens */
+  --color-teal: var(--teal);
+  --color-teal-foreground: var(--teal-foreground);
+  --color-morning: var(--morning);
+  --color-morning-foreground: var(--morning-foreground);
+  --color-evening: var(--evening);
+  --color-evening-foreground: var(--evening-foreground);
+  --color-cream: var(--cream);
+}
+
+:root {
+  --radius: 0.625rem;
+
+  /* Core palette: warm white surfaces + deep teal brand */
+  --background: oklch(0.97 0.005 95);
+  --foreground: oklch(0.2 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.02 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.02 260);
+
+  --primary: oklch(0.42 0.09 195);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.95 0.015 195);
+  --secondary-foreground: oklch(0.35 0.08 195);
+  --muted: oklch(0.94 0.01 95);
+  --muted-foreground: oklch(0.55 0.04 260);
+  --accent: oklch(0.93 0.03 195);
+  --accent-foreground: oklch(0.3 0.08 195);
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --border: oklch(0.9 0.015 95);
+  --input: oklch(0.9 0.015 95);
+  --ring: oklch(0.55 0.12 195);
+
+  --chart-1: oklch(0.55 0.12 195);
+  --chart-2: oklch(0.65 0.18 150);
+  --chart-3: oklch(0.75 0.18 80);
+  --chart-4: oklch(0.55 0.22 25);
+  --chart-5: oklch(0.45 0.1 260);
+
+  --sidebar: oklch(0.25 0.06 195);
+  --sidebar-foreground: oklch(0.98 0.005 95);
+  --sidebar-primary: oklch(0.42 0.09 195);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.3 0.07 195);
+  --sidebar-accent-foreground: oklch(0.98 0.005 95);
+  --sidebar-border: oklch(0.35 0.06 195);
+  --sidebar-ring: oklch(0.55 0.12 195);
+
+  /* App-specific */
+  --teal: oklch(0.55 0.12 195);
+  --teal-foreground: oklch(0.99 0 0);
+  --morning: oklch(0.97 0.025 165);
+  --morning-foreground: oklch(0.25 0.06 165);
+  --evening: oklch(0.92 0.03 195);
+  --evening-foreground: oklch(0.22 0.07 195);
+  --cream: oklch(0.98 0.008 95);
+}
+
+.dark {
+  --background: oklch(0.18 0.03 260);
+  --foreground: oklch(0.96 0.005 95);
+  --card: oklch(0.22 0.03 260);
+  --card-foreground: oklch(0.96 0.005 95);
+  --popover: oklch(0.22 0.03 260);
+  --popover-foreground: oklch(0.96 0.005 95);
+  --primary: oklch(0.55 0.12 195);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.3 0.06 195);
+  --secondary-foreground: oklch(0.96 0.005 95);
+  --muted: oklch(0.3 0.04 260);
+  --muted-foreground: oklch(0.7 0.03 260);
+  --accent: oklch(0.35 0.07 195);
+  --accent-foreground: oklch(0.96 0.005 95);
+  --destructive: oklch(0.65 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.3 0.04 260);
+  --input: oklch(0.3 0.04 260);
+  --ring: oklch(0.55 0.12 195);
+  --sidebar: oklch(0.15 0.04 260);
+  --sidebar-foreground: oklch(0.96 0.005 95);
+  --sidebar-primary: oklch(0.55 0.12 195);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.25 0.06 195);
+  --sidebar-accent-foreground: oklch(0.96 0.005 95);
+  --sidebar-border: oklch(0.25 0.05 260);
+  --sidebar-ring: oklch(0.55 0.12 195);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Prevent iOS auto-zoom on inputs; spec requires 16px+ on all inputs. */
+  input, textarea, select, button {
+    font-size: 1rem;
+  }
+
+  /* Minimum 44x44 hit area for buttons/tap targets. */
+  button, [role="button"], a, input, select, textarea, [tabindex]:not([tabindex="-1"]) {
+    min-height: 44px;
+  }
+
+  /* Focus rings use the brand teal. */
+  *:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+}
+
+@utility morning-row {
+  background-color: var(--color-morning);
+  color: var(--color-morning-foreground);
+}
+
+@utility evening-row {
+  background-color: var(--color-evening);
+  color: var(--color-evening-foreground);
+}
+
+@utility safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * Printable day report.
+ * Hidden on screen; the print stylesheet hides the app and reveals it.
+ * ------------------------------------------------------------------ */
+
+#print-report {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 14mm;
+  }
+
+  /* Hide the app shell and anything portalled to <body> (dialogs, toasts). */
+  .screen-only,
+  [data-sonner-toaster],
+  [role="dialog"],
+  [data-radix-popper-content-wrapper] {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  #print-report {
+    display: block !important;
+    color: #000;
+    font-size: 11pt;
+  }
+
+  #print-report .report-head {
+    margin-bottom: 10mm;
+    border-bottom: 1.5px solid #000;
+    padding-bottom: 4mm;
+  }
+  #print-report h1 {
+    margin: 0;
+    font-size: 20pt;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  #print-report .report-title {
+    margin: 1mm 0 0;
+    font-size: 13pt;
+    font-weight: 600;
+  }
+  #print-report .report-date {
+    margin: 2mm 0 0;
+    font-size: 12pt;
+  }
+  #print-report .report-meta {
+    margin: 1mm 0 0;
+    font-size: 9pt;
+    color: #444;
+  }
+
+  #print-report table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  /* Repeat column headers at the top of every printed page. */
+  #print-report thead {
+    display: table-header-group;
+  }
+  #print-report tfoot {
+    display: table-footer-group;
+  }
+  /* Never split a visit across a page break. */
+  #print-report tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  #print-report th,
+  #print-report td {
+    border-bottom: 1px solid #bbb;
+    padding: 2mm 2.5mm;
+    text-align: left;
+    vertical-align: top;
+    font-size: 10pt;
+  }
+  #print-report th {
+    border-bottom: 1.2px solid #000;
+    font-weight: 600;
+  }
+  #print-report .num {
+    text-align: right;
+    white-space: nowrap;
+  }
+  #print-report .split {
+    display: block;
+    font-size: 8.5pt;
+    color: #444;
+  }
+  #print-report .empty-row {
+    padding: 6mm 0;
+    text-align: center;
+    color: #444;
+  }
+
+  #print-report .report-summary {
+    margin-top: 8mm;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  #print-report .report-summary h2 {
+    margin: 0 0 3mm;
+    font-size: 13pt;
+    font-weight: 600;
+    border-bottom: 1px solid #000;
+    padding-bottom: 1.5mm;
+  }
+  #print-report .report-summary dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5mm 10mm;
+  }
+  #print-report .report-summary dl > div {
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px dotted #bbb;
+    padding-bottom: 1mm;
+  }
+  #print-report .report-summary dt {
+    margin: 0;
+  }
+  #print-report .report-summary dd {
+    margin: 0;
+    font-weight: 600;
+  }
+  #print-report .report-summary .grand {
+    grid-column: 1 / -1;
+    margin-top: 2mm;
+    border-bottom: none;
+    border-top: 1.2px solid #000;
+    padding-top: 2mm;
+    font-size: 12pt;
+  }
+}
