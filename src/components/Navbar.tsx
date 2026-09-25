@@ -1,7 +1,8 @@
-import { LogOut, Plus, User2 } from "lucide-react";
+import { LogOut, Plus, Repeat, User2 } from "lucide-react";
 import { ShiftToggle } from "./ShiftToggle";
 import { SearchBox } from "./SearchBox";
 import { cn } from "@/lib/utils";
+import type { OperatorOption } from "@/lib/auth";
 import type { Shift } from "@/lib/types";
 
 interface NavbarProps {
@@ -11,6 +12,10 @@ interface NavbarProps {
   search: string;
   onSearchChange: (value: string) => void;
   onLogout: () => void;
+  /** Who this session records visits as — always visible, never guessed at. */
+  operator: OperatorOption | null;
+  /** Reopens the picker without logging out, for a shift handoff. */
+  onSwitchOperator: () => void;
   className?: string;
 }
 
@@ -21,6 +26,8 @@ export function Navbar({
   search,
   onSearchChange,
   onLogout,
+  operator,
+  onSwitchOperator,
   className,
 }: NavbarProps) {
   return (
@@ -57,6 +64,23 @@ export function Navbar({
             <Plus size={18} />
             Add Patient
           </button>
+          {/* Current operator + one-tap handoff. Sits next to Logout because
+              switching names is the common case and logging out is not. */}
+          <button
+            type="button"
+            onClick={onSwitchOperator}
+            className="inline-flex h-11 items-center gap-2 rounded-lg bg-white/10 px-3 text-sm font-medium text-white transition-colors hover:bg-white/20"
+            aria-label={
+              operator ? `Recording as ${operator.displayName}. Switch operator.` : "Pick operator"
+            }
+          >
+            <User2 size={16} />
+            <span className="max-w-[10rem] truncate">{operator?.displayName ?? "Pick name"}</span>
+            <span className="inline-flex items-center gap-1 rounded bg-white/15 px-1.5 py-0.5 text-xs">
+              <Repeat size={12} />
+              Switch
+            </span>
+          </button>
           <button
             type="button"
             onClick={onLogout}
@@ -70,6 +94,17 @@ export function Navbar({
         {/* Mobile top bar: search + logout */}
         <div className="flex items-center gap-2 md:hidden">
           <SearchBox variant="mobile" value={search} onChange={onSearchChange} />
+          <button
+            type="button"
+            onClick={onSwitchOperator}
+            className="flex h-11 max-w-[8rem] items-center gap-1.5 rounded-lg bg-white/10 px-2.5 text-sm font-medium text-white"
+            aria-label={
+              operator ? `Recording as ${operator.displayName}. Switch operator.` : "Pick operator"
+            }
+          >
+            <User2 size={16} />
+            <span className="truncate">{operator?.displayName ?? "Pick name"}</span>
+          </button>
           <button
             type="button"
             onClick={onLogout}

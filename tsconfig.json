@@ -10,6 +10,9 @@
     /* Bundler mode */
     "moduleResolution": "Bundler",
     "allowImportingTsExtensions": true,
+    /* src/lib/password.js is plain JS so `node scripts/set-site-password.mjs`
+       can import the very same hashing code the server uses. */
+    "allowJs": true,
     "verbatimModuleSyntax": false,
     "noEmit": true,
 

@@ -15,6 +15,13 @@
       "when": 1789914595104,
       "tag": "0001_nervous_vargas",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789923779427,
+      "tag": "0002_yellow_the_fury",
+      "breakpoints": true
     }
   ]
 }

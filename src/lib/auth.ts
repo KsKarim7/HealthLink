@@ -1,70 +1,48 @@
-import { STORAGE_KEYS } from "./constants";
+/**
+ * Client-safe auth types and helpers.
+ *
+ * Everything that decides anything now lives server-side in `auth.server.ts`:
+ * there is no longer a client-readable session value, no seeded user list and no
+ * password anywhere in the bundle. This module holds only the shapes the UI
+ * renders and the sentinel used to recognise an expired session.
+ */
 
-export interface AuthUser {
-  id: string;
-  username: string;
-  role: "doctor" | "receptionist";
-  /**
-   * Which `operators` row this demo login records visits as. Phase 2 replaces
-   * the demo login with a shared login plus an operator picker; until then each
-   * seeded user maps to a seeded operator so `recorded_by` is a real value.
-   */
-  operatorId: number;
+/** A name from the `operators` roster, as offered by the picker. */
+export interface OperatorOption {
+  id: number;
+  displayName: string;
 }
 
-export function getAuthUser(): AuthUser | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(STORAGE_KEYS.auth);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<AuthUser>;
-    // Sessions stored before operators existed have no operatorId — treat them
-    // as stale so the user signs in again and gets a usable one.
-    if (!parsed || typeof parsed.operatorId !== "number") return null;
-    return parsed as AuthUser;
-  } catch {
-    return null;
-  }
+/**
+ * What the server says about the current browser. `authenticated` means the
+ * shared password was entered; `operator` is null until a name is picked, and
+ * that gap is exactly what forces the picker screen.
+ */
+export interface SessionState {
+  authenticated: boolean;
+  operator: OperatorOption | null;
 }
 
-export function setAuthUser(user: AuthUser): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(STORAGE_KEYS.auth, JSON.stringify(user));
-  }
+export const SIGNED_OUT: SessionState = { authenticated: false, operator: null };
+
+/**
+ * Prefix on every "you are not signed in" error a server function throws. Server
+ * function errors reach the client as a plain Error with the message preserved
+ * and nothing else, so the code travels in the message itself.
+ */
+export const AUTH_ERROR_CODE = "HL_UNAUTHENTICATED";
+
+export const AUTH_ERROR_MESSAGE = `${AUTH_ERROR_CODE}: Your session has ended. Please sign in again.`;
+
+/** True when a rejected server call was rejected for lack of a valid session. */
+export function isAuthError(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return message.includes(AUTH_ERROR_CODE);
 }
 
-export function clearAuthUser(): void {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem(STORAGE_KEYS.auth);
-  }
-}
-
-export const SEED_USERS = [
-  {
-    id: "doctor-1",
-    username: "doctor",
-    password: "doctor123",
-    role: "doctor" as const,
-    operatorId: 2, // "Dr. Rahman"
-  },
-  {
-    id: "receptionist-1",
-    username: "receptionist",
-    password: "receptionist123",
-    role: "receptionist" as const,
-    operatorId: 1, // "Reception Desk"
-  },
-];
-
-export function login(username: string, password: string): AuthUser | null {
-  const user = SEED_USERS.find((u) => u.username === username && u.password === password);
-  if (!user) return null;
-  const authUser: AuthUser = {
-    id: user.id,
-    username: user.username,
-    role: user.role,
-    operatorId: user.operatorId,
-  };
-  setAuthUser(authUser);
-  return authUser;
+/** The same message without the machine-readable prefix, for display. */
+export function authErrorText(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.replace(new RegExp(`^.*${AUTH_ERROR_CODE}:\\s*`), "").trim();
 }

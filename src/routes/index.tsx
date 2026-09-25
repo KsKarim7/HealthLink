@@ -8,6 +8,7 @@ import { PatientTable } from "@/components/PatientTable";
 import { PatientCardList } from "@/components/PatientCard";
 import { Pagination } from "@/components/Pagination";
 import { AddPatientModal } from "@/components/AddPatientModal";
+import { OperatorPicker } from "@/components/OperatorPicker";
 import { PrintDayReport } from "@/components/PrintDayReport";
 import { Button } from "@/components/ui/button";
 import { Printer, Loader2 } from "lucide-react";
@@ -15,6 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePatients } from "@/hooks/usePatients";
 import { useDayTotals } from "@/hooks/useDayTotals";
 import { createVisit, getDayTotals, listDayVisits } from "@/lib/patients.server";
+import { isAuthError } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import {
@@ -35,7 +37,15 @@ export const Route = createFileRoute("/")({
 function HomePage() {
   // Every hook runs unconditionally, before any early return — the auth gate below
   // must never change the number of hooks between renders.
-  const { user, isLoading: authLoading, logout } = useAuth();
+  const {
+    isAuthenticated,
+    operator,
+    isLoading: authLoading,
+    logout,
+    selectOperator,
+    switchOperator,
+    refresh: refreshSession,
+  } = useAuth();
   const navigate = useNavigate();
   const [date, setDate] = useState(todayInClinicTz);
   const [shift, setShift] = useState<Shift | "all">("all");
@@ -44,6 +54,8 @@ function HomePage() {
   // "View all patients": every date instead of `date`. Picking a date turns it off.
   const [allDates, setAllDates] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  // Set by the navbar's Switch control: reopens the picker mid-session.
+  const [switching, setSwitching] = useState(false);
   const [totalsToken, setTotalsToken] = useState(0);
   // Full-day rows for the printable report — fetched on demand, unpaginated,
   // and deliberately independent of the on-screen shift/page/search state.
@@ -65,10 +77,19 @@ function HomePage() {
   // While `authLoading` is true a logged-in session may still be restoring, so
   // redirecting here would bounce a valid user off the page on every refresh.
   useEffect(() => {
-    if (!authLoading && !user) {
+    if (!authLoading && !isAuthenticated) {
       navigate({ to: "/login", replace: true });
     }
-  }, [authLoading, user, navigate]);
+  }, [authLoading, isAuthenticated, navigate]);
+
+  // A data call rejected for lack of a session means the session ended
+  // elsewhere (expired, or logged out on another tab). Re-reading it clears
+  // `isAuthenticated`, and the effect above then sends the user to /login.
+  useEffect(() => {
+    if (error && isAuthError(error)) {
+      void refreshSession();
+    }
+  }, [error, refreshSession]);
 
   useEffect(() => {
     if (!pendingPrint || !printRows) return;
@@ -78,7 +99,7 @@ function HomePage() {
     return () => cancelAnimationFrame(raf);
   }, [pendingPrint, printRows]);
 
-  if (authLoading || !user) {
+  if (authLoading || !isAuthenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <p className="text-sm text-muted-foreground">Loading…</p>
@@ -86,12 +107,33 @@ function HomePage() {
     );
   }
 
-  // Plain handlers (not hooks) — safe to declare after the guard, and `user` is
-  // narrowed to non-null here.
+  // Signed in but nameless: the picker comes before the homepage, so no visit
+  // can ever be recorded without an operator behind it. The same screen handles
+  // an explicit Switch, which only differs by having something to cancel back to.
+  if (!operator || switching) {
+    return (
+      <OperatorPicker
+        current={operator}
+        onSelect={async (operatorId) => {
+          if (operator) {
+            await switchOperator(operatorId);
+            setSwitching(false);
+          } else {
+            await selectOperator(operatorId);
+          }
+        }}
+        onCancel={operator ? () => setSwitching(false) : undefined}
+      />
+    );
+  }
+
+  // Plain handlers (not hooks) — safe to declare after the guard, and `operator`
+  // is narrowed to non-null here.
   const handleAddPatient = async (draft: VisitDraft): Promise<Visit> => {
-    // The server is the sole authority on code/fee/isNewPatient/visit_at; the
-    // toast reports the record it actually stored.
-    const saved = await createVisit({ data: { draft, operatorId: user.operatorId } });
+    // The server is the sole authority on code/fee/isNewPatient/visit_at and now
+    // recorded_by too — it reads the operator from the session, so there is
+    // nothing to send. The toast reports the record it actually stored.
+    const saved = await createVisit({ data: { draft } });
     refresh();
     setTotalsToken((t) => t + 1);
     const breakdown =
@@ -128,8 +170,8 @@ function HomePage() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate({ to: "/login", replace: true });
   };
 
@@ -165,7 +207,9 @@ function HomePage() {
           setSearch(s);
           setPage(1);
         }}
-        onLogout={handleLogout}
+        onLogout={() => void handleLogout()}
+        operator={operator}
+        onSwitchOperator={() => setSwitching(true)}
       />
 
       <main className="flex-1 p-4 pb-28 md:px-6 md:pb-6 lg:px-8">

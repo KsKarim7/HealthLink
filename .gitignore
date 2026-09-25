@@ -38,3 +38,6 @@ dist-ssr
 
 # Local planning/process notes — never committed
 dev-notes/
+
+# Optional local file for scripts/set-site-password.mjs — never committed
+.site-password

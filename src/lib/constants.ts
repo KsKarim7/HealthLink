@@ -25,8 +25,6 @@ export const PHONE_REGEX = /^01[3-9]\d{8}$/;
 export const PHONE_INVALID_MESSAGE =
   "Enter a valid 11-digit Bangladeshi mobile number (e.g. 017XXXXXXXX).";
 
-export const STORAGE_KEYS = {
-  patients: "dpas_patients",
-  patientMasters: "dpas_patient_masters",
-  auth: "dpas_auth",
-};
+// STORAGE_KEYS is gone: the last of them, `dpas_auth`, was the localStorage flag
+// the demo login treated as proof of identity. Sessions now live server-side and
+// the browser keeps nothing at all.

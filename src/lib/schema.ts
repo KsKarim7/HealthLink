@@ -14,15 +14,56 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Who recorded a visit. Phase 1 keeps the demo login as-is (Phase 2 replaces it
- * with a shared login + operator picker), so these rows are the accountability
- * stamp the visit log attributes each entry to.
+ * Who recorded a visit — a plain roster of names, deliberately with no login
+ * columns of its own. "Who is this" (this table) and "can this browser get in"
+ * (`siteAuth` + `sessions`) are fully decoupled: everyone shares one password,
+ * then picks their name from this list.
  */
 export const operators = pgTable("operators", {
   id: serial("id").primaryKey(),
   displayName: text("display_name").notNull(),
   active: boolean("active").notNull().default(true),
 });
+
+/**
+ * The one shared credential for the whole site. Exactly one row, id = 1, holding
+ * a PBKDF2-SHA256 digest — never a plaintext password.
+ *
+ * Rows are written only by `scripts/set-site-password.mjs`, run locally by the
+ * clinic owner. Nothing in the app, the seed script or any migration ever puts a
+ * usable password here.
+ */
+export const siteAuth = pgTable(
+  "site_auth",
+  {
+    id: integer("id").primaryKey().default(1),
+    passwordHash: text("password_hash").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("site_auth_single_row", sql`${t.id} = 1`)],
+);
+
+/**
+ * Server-stored sessions. The browser holds only an opaque random token in an
+ * httpOnly cookie; `id` here is the SHA-256 of that token, so a leaked database
+ * dump still contains nothing that can be replayed as a cookie.
+ *
+ * `operatorId` is the whole point of this table: the selected operator lives
+ * server-side, so `recorded_by` cannot be influenced by anything the client
+ * sends. It is null between signing in and picking a name.
+ */
+export const sessions = pgTable(
+  "sessions",
+  {
+    /** SHA-256 (hex) of the cookie token — never the token itself. */
+    id: text("id").primaryKey(),
+    operatorId: integer("operator_id").references(() => operators.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("sessions_expires_at_idx").on(t.expiresAt)],
+);
 
 /**
  * One row per person. `phone` is UNIQUE — this is the server-enforced version of
@@ -97,3 +138,4 @@ export const auditLog = pgTable("audit_log", {
 export type PatientRow = typeof patients.$inferSelect;
 export type VisitRow = typeof visits.$inferSelect;
 export type OperatorRow = typeof operators.$inferSelect;
+export type SessionRow = typeof sessions.$inferSelect;

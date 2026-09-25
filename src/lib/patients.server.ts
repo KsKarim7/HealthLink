@@ -2,7 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { and, asc, count, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "./db";
-import { auditLog, operators, patients, visits } from "./schema";
+import { requireOperator, requireSession } from "./session.server";
+import { auditLog, patients, visits } from "./schema";
 import { FEES, MEDICINE, PHONE_INVALID_MESSAGE, PHONE_REGEX } from "./constants";
 import {
   CLINIC_TZ,
@@ -16,6 +17,15 @@ import {
 } from "./types";
 
 const PAGE_SIZE = 10;
+
+/**
+ * Every function in this file starts with a session check.
+ *
+ * The redirect to /login is a convenience for the person at the desk, not a
+ * protection: these endpoints are reachable directly over HTTP, so the guard has
+ * to live here. Reads require a signed-in session; the write additionally
+ * requires an operator to have been picked, since that is what it stamps.
+ */
 
 const phoneSchema = z.string().regex(PHONE_REGEX, PHONE_INVALID_MESSAGE);
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
@@ -80,6 +90,7 @@ function toVisit(row: {
 export const lookupByPhone = createServerFn({ method: "GET" })
   .inputValidator((input: { phone: string }) => z.object({ phone: phoneSchema }).parse(input))
   .handler(async ({ data }): Promise<PatientIdentity | null> => {
+    await requireSession();
     const db = getDb();
     const [row] = await db
       .select({
@@ -106,26 +117,21 @@ export const lookupByPhone = createServerFn({ method: "GET" })
  *
  * Fee, patient code, is_new_patient and visit_at are all decided here — this is
  * the single place they are assigned (the Phase 0 invariant, moved server-side).
+ *
+ * `recorded_by` now joins that list. It comes from the operator stored in the
+ * server-side session, never from the request: the payload has no field for it,
+ * and zod drops anything extra, so there is nothing a tampered client could send
+ * that would change who a visit is attributed to.
  */
 export const createVisit = createServerFn({ method: "POST" })
-  .inputValidator((input: { draft: unknown; operatorId: number }) =>
-    z.object({ draft: draftSchema, operatorId: z.number().int().positive() }).parse(input),
-  )
+  .inputValidator((input: { draft: unknown }) => z.object({ draft: draftSchema }).parse(input))
   .handler(async ({ data }): Promise<Visit> => {
-    const { draft, operatorId } = data;
+    const { draft } = data;
+    const operator = await requireOperator();
+    const actor = operator.displayName;
     const db = getDb();
 
     return db.transaction(async (tx) => {
-      const [operator] = await tx
-        .select()
-        .from(operators)
-        .where(and(eq(operators.id, operatorId), eq(operators.active, true)))
-        .limit(1);
-      if (!operator) {
-        throw new Error(`Unknown or inactive operator: ${operatorId}`);
-      }
-      const actor = operator.displayName;
-
       let patient = (
         await tx.select().from(patients).where(eq(patients.phone, draft.phone)).limit(1)
       )[0];
@@ -262,6 +268,7 @@ const listVisitsSchema = z.object({
 export const listVisits = createServerFn({ method: "GET" })
   .inputValidator((input: unknown) => listVisitsSchema.parse(input ?? {}))
   .handler(async ({ data }): Promise<VisitPage> => {
+    await requireSession();
     const db = getDb();
     const date = data.date ?? todayInClinicTz();
     const pageSize = data.pageSize ?? PAGE_SIZE;
@@ -339,6 +346,7 @@ export const listDayVisits = createServerFn({ method: "GET" })
     z.object({ date: dateSchema.optional() }).parse(input ?? {}),
   )
   .handler(async ({ data }): Promise<Visit[]> => {
+    await requireSession();
     const db = getDb();
     const date = data.date ?? todayInClinicTz();
 
@@ -375,6 +383,7 @@ export const getDayTotals = createServerFn({ method: "GET" })
     z.object({ date: dateSchema.optional() }).parse(input ?? {}),
   )
   .handler(async ({ data }): Promise<DayTotals> => {
+    await requireSession();
     const db = getDb();
     const date = data.date ?? todayInClinicTz();
 

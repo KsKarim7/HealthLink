@@ -3,14 +3,15 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { User2, Lock, Loader2 } from "lucide-react";
+import { Lock, Loader2, User2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 
+// One shared credential for the whole clinic, so there is no username to ask
+// for. Who you are is chosen after signing in, on the operator picker.
 const loginSchema = z.object({
-  username: z.string().min(1, "Username is required"),
   password: z.string().min(1, "Password is required"),
 });
 
@@ -26,33 +27,37 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   // Mirror of HomePage: all hooks run unconditionally, above the auth gate.
-  const { user, isLoading: authLoading, login } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, login } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
 
   const form = useForm({
     resolver: zodResolver(loginSchema),
-    defaultValues: { username: "", password: "" },
+    defaultValues: { password: "" },
   });
 
-  // Send an already-authenticated visitor home from an effect, not during render.
+  // Send an already-authenticated visitor home from an effect, not during
+  // render. "/" then shows the operator picker if no name has been chosen.
   useEffect(() => {
-    if (!authLoading && user) {
+    if (!authLoading && isAuthenticated) {
       navigate({ to: "/", replace: true });
     }
-  }, [authLoading, user, navigate]);
+  }, [authLoading, isAuthenticated, navigate]);
 
   const onSubmit = form.handleSubmit(async (data) => {
     setError(null);
-    const found = await login(data.username, data.password);
-    if (found) {
+    try {
+      await login(data.password);
       navigate({ to: "/", replace: true });
-    } else {
-      setError("Invalid username or password.");
+    } catch {
+      // Deliberately generic: the server never distinguishes a wrong password
+      // from no password having been configured yet.
+      setError("Incorrect password.");
+      form.resetField("password");
     }
   });
 
-  if (authLoading || user) {
+  if (authLoading || isAuthenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <p className="text-sm text-muted-foreground">Loading…</p>
@@ -73,28 +78,14 @@ function LoginPage() {
 
         <form onSubmit={onSubmit} className="mt-8 space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="username" className="text-sm font-medium">
-              <User2 className="mr-1 inline" size={14} /> Username
-            </Label>
-            <Input
-              id="username"
-              autoFocus
-              placeholder="doctor or receptionist"
-              className="h-12 text-base"
-              {...form.register("username")}
-            />
-            {form.formState.errors.username && (
-              <p className="text-xs text-destructive">{form.formState.errors.username.message}</p>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
             <Label htmlFor="password" className="text-sm font-medium">
-              <Lock className="mr-1 inline" size={14} /> Password
+              <Lock className="mr-1 inline" size={14} /> Clinic password
             </Label>
             <Input
               id="password"
               type="password"
+              autoFocus
+              autoComplete="current-password"
               placeholder="••••••••"
               className="h-12 text-base"
               {...form.register("password")}
@@ -123,11 +114,9 @@ function LoginPage() {
           </Button>
         </form>
 
-        <div className="mt-6 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground">Demo credentials</p>
-          <p>Username: <span className="font-mono text-foreground">receptionist</span>, Password: <span className="font-mono text-foreground">receptionist123</span></p>
-          <p>Username: <span className="font-mono text-foreground">doctor</span>, Password: <span className="font-mono text-foreground">doctor123</span></p>
-        </div>
+        <p className="mt-6 text-center text-xs text-muted-foreground">
+          You'll choose your name after signing in.
+        </p>
       </div>
     </div>
   );

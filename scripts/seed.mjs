@@ -3,6 +3,10 @@
 //
 //   bun run db:seed            (refuses if visits already exist)
 //   bun run db:seed --force    (wipes and reseeds)
+//
+// Operators are sample NAMES only — the roster, nothing more. This script never
+// touches `site_auth`, so it cannot create a usable shared password; that only
+// ever happens via `node scripts/set-site-password.mjs`, run locally.
 process.loadEnvFile();
 
 const { neon } = await import("@neondatabase/serverless");
@@ -60,7 +64,10 @@ if (existing[0].n > 0 && !force) {
 }
 
 console.log("Clearing existing data...");
-await sql`truncate table audit_log, visits, patients, operators restart identity cascade`;
+// `sessions` is listed explicitly because it references operators: reseeding the
+// roster invalidates any session pinned to an old operator id, so those browsers
+// sign in again. `site_auth` is deliberately absent — the password survives.
+await sql`truncate table audit_log, visits, patients, sessions, operators restart identity cascade`;
 
 console.log("Inserting operators...");
 for (const name of OPERATORS) {
@@ -111,6 +118,12 @@ const summary = await sql`
   from visits group by 1 order by 1`;
 
 console.log(`\nSeeded ${OPERATORS.length} operators, ${PEOPLE.length} patients, ${inserted} visits.`);
+const [auth] = await sql`select count(*)::int as n from site_auth`;
+console.log(
+  auth.n > 0
+    ? "Shared password: left untouched (still set)."
+    : "Shared password: not set — run `node scripts/set-site-password.mjs` before signing in.",
+);
 for (const r of summary) {
   console.log(`  ${r.day}  ${r.visits} visits  ${r.fees} BDT`);
 }
