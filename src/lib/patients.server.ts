@@ -117,6 +117,10 @@ function toVisit(row: {
   backdated: boolean;
   createdAt: Date;
   recordedBy: string;
+  voided: boolean;
+  voidReason: string | null;
+  voidedBy: string | null;
+  voidedAt: Date | null;
 }): Visit {
   return {
     id: row.id,
@@ -134,6 +138,10 @@ function toVisit(row: {
     backdated: row.backdated,
     createdAt: row.createdAt.toISOString(),
     recordedBy: row.recordedBy,
+    voided: row.voided,
+    voidReason: row.voidReason,
+    voidedBy: row.voidedBy,
+    voidedAt: row.voidedAt ? row.voidedAt.toISOString() : null,
   };
 }
 
@@ -155,6 +163,10 @@ const visitColumns = {
   backdated: visits.backdated,
   createdAt: visits.createdAt,
   recordedBy: visits.recordedBy,
+  voided: visits.voided,
+  voidReason: visits.voidReason,
+  voidedBy: visits.voidedBy,
+  voidedAt: visits.voidedAt,
 } as const;
 
 /* ------------------------------------------------------------------ */
@@ -383,7 +395,98 @@ export const createVisit = createServerFn({ method: "POST" })
         backdated: visit.backdated,
         createdAt: visit.createdAt,
         recordedBy: visit.recordedBy,
+        // A brand-new visit is never voided, but these come from the stored row
+        // rather than being assumed, like every other field here.
+        voided: visit.voided,
+        voidReason: visit.voidReason,
+        voidedBy: visit.voidedBy,
+        voidedAt: visit.voidedAt,
       });
+    });
+  });
+
+/* ------------------------------------------------------------------ */
+/* voidVisit                                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Strikes one visit from the record.
+ *
+ * Nothing is deleted: the row stays, flagged, with the reason and the moment it
+ * happened, and every list, total and report simply stops counting it. That is
+ * what makes this safe to expose at the desk — a mistake costs a row that can
+ * still be read back, not a row that is gone.
+ *
+ * There is deliberately no un-void. A visit voided by mistake is corrected by
+ * recording the correct visit, which leaves both facts visible in order rather
+ * than quietly rewriting one of them.
+ *
+ * Touches the visit row and nothing else — the patient's name, address and code
+ * are not part of this operation and are never written here.
+ */
+export const voidVisit = createServerFn({ method: "POST" })
+  .inputValidator((input: { visitId: number; reason: string }) =>
+    z
+      .object({
+        visitId: z.number().int().positive(),
+        // Trimmed before the length check, so whitespace cannot pass as a
+        // reason. A void with no stated cause is exactly what this prevents.
+        reason: z
+          .string()
+          .trim()
+          .min(1, "Give a reason for voiding this visit.")
+          .max(500, "Keep the reason under 500 characters."),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<Visit> => {
+    await requireSession();
+    const db = getDb();
+
+    return db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(visits)
+        .where(eq(visits.id, data.visitId))
+        .limit(1);
+
+      if (!existing) throw new Error("That visit no longer exists.");
+      if (existing.voided) throw new Error("This visit has already been voided.");
+
+      // The `voided = false` in the WHERE is the real guard: if a concurrent
+      // request voided this visit between the select above and here, no row
+      // comes back and we report it as already voided instead of overwriting
+      // the first void's reason and timestamp.
+      const [updated] = await tx
+        .update(visits)
+        .set({
+          voided: true,
+          voidReason: data.reason,
+          voidedBy: RECORDER_NAME,
+          voidedAt: new Date(),
+        })
+        .where(and(eq(visits.id, data.visitId), eq(visits.voided, false)))
+        .returning();
+
+      if (!updated) throw new Error("This visit has already been voided.");
+
+      await tx.insert(auditLog).values({
+        entity: "visit",
+        entityId: updated.id,
+        action: "void",
+        actor: RECORDER_NAME,
+        before: existing,
+        after: updated,
+      });
+
+      const [row] = await tx
+        .select(visitColumns)
+        .from(visits)
+        .innerJoin(patients, eq(visits.patientId, patients.id))
+        .where(eq(visits.id, updated.id))
+        .limit(1);
+
+      return toVisit(row);
     });
   });
 
@@ -399,6 +502,11 @@ const listVisitsSchema = z.object({
   search: z.string().optional(),
   page: z.number().int().positive().optional(),
   pageSize: z.number().int().positive().max(100).optional(),
+  /**
+   * Include voided visits as well. Off unless asked for: a voided visit is not
+   * part of the day's work, so it must not turn up in the ordinary view.
+   */
+  includeVoided: z.boolean().optional(),
 });
 
 /**
@@ -419,7 +527,9 @@ export const listVisits = createServerFn({ method: "GET" })
     const pageSize = data.pageSize ?? PAGE_SIZE;
     const search = data.search?.trim();
 
-    const filters: (SQL | undefined)[] = [eq(visits.voided, false)];
+    // The default, and the reason the feature works at all: a voided visit
+    // vanishes from the list the moment it is voided.
+    const filters: (SQL | undefined)[] = data.includeVoided ? [] : [eq(visits.voided, false)];
 
     if (!search) {
       if (!data.allDates) filters.push(onClinicDate(date));
@@ -479,7 +589,9 @@ const REPORT_MAX_ROWS = 2000;
  */
 export const listDayVisits = createServerFn({ method: "GET" })
   .inputValidator((input: unknown) =>
-    z.object({ date: dateSchema.optional() }).parse(input ?? {}),
+    z
+      .object({ date: dateSchema.optional(), includeVoided: z.boolean().optional() })
+      .parse(input ?? {}),
   )
   .handler(async ({ data }): Promise<Visit[]> => {
     await requireSession();
@@ -490,7 +602,13 @@ export const listDayVisits = createServerFn({ method: "GET" })
       .select(visitColumns)
       .from(visits)
       .innerJoin(patients, eq(visits.patientId, patients.id))
-      .where(and(eq(visits.voided, false), onClinicDate(date)))
+      // The printable report never passes includeVoided, so paper always shows
+      // the day as it actually stands.
+      .where(
+        data.includeVoided
+          ? onClinicDate(date)
+          : and(eq(visits.voided, false), onClinicDate(date)),
+      )
       // id breaks ties between backdated rows sharing a nominal time, so the
       // printed report lists them in a stable, repeatable order.
       .orderBy(asc(visits.visitAt), asc(visits.id))

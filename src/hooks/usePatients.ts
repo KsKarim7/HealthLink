@@ -12,6 +12,8 @@ export interface UsePatientsOptions {
   search: string;
   /** Ignore `date` and list every day. Search overrides this too. */
   allDates: boolean;
+  /** Also list voided visits, which are hidden everywhere by default. */
+  includeVoided: boolean;
 }
 
 const EMPTY: VisitPage = { rows: [], total: 0, totalPages: 1, page: 1 };
@@ -21,7 +23,14 @@ const EMPTY: VisitPage = { rows: [], total: 0, totalPages: 1, page: 1 };
  * happen in Postgres now — this hook no longer loads everything and filters in
  * memory the way the localStorage version did.
  */
-export function usePatients({ date, shift, page, search, allDates }: UsePatientsOptions) {
+export function usePatients({
+  date,
+  shift,
+  page,
+  search,
+  allDates,
+  includeVoided,
+}: UsePatientsOptions) {
   const [data, setData] = useState<VisitPage>(EMPTY);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,13 +45,14 @@ export function usePatients({ date, shift, page, search, allDates }: UsePatients
     // nor shift. Otherwise: one day (or all days) with the shift filter applied.
     const term = search.trim();
     const query = term
-      ? { search: term, page, pageSize: PAGE_LIMIT }
+      ? { search: term, page, pageSize: PAGE_LIMIT, includeVoided }
       : {
           date: allDates ? undefined : date,
           allDates,
           shift: shift === "all" ? undefined : shift,
           page,
           pageSize: PAGE_LIMIT,
+          includeVoided,
         };
 
     listVisits({ data: query })
@@ -62,7 +72,7 @@ export function usePatients({ date, shift, page, search, allDates }: UsePatients
     return () => {
       cancelled = true;
     };
-  }, [date, shift, page, search, allDates, reloadToken]);
+  }, [date, shift, page, search, allDates, includeVoided, reloadToken]);
 
   const refresh = useCallback(() => setReloadToken((t) => t + 1), []);
 

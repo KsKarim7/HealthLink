@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { Ban, ChevronDown, ChevronUp } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   formatCurrency,
   formatDate,
+  formatVoidedAt,
   getShiftBadgeClass,
   getShiftRowClass,
   totalCharged,
@@ -14,14 +16,16 @@ import {
 
 interface PatientCardProps {
   visit: Visit;
+  /** Opens the void-confirmation dialog. Absent on an already-voided card. */
+  onVoid?: (visit: Visit) => void;
 }
 
-export function PatientCard({ visit }: PatientCardProps) {
+export function PatientCard({ visit, onVoid }: PatientCardProps) {
   const [expanded, setExpanded] = useState(false);
   const time = visitTimeDisplay(visit);
 
   return (
-    <Card className={getShiftRowClass(visit.shift)}>
+    <Card className={cn(getShiftRowClass(visit.shift), visit.voided && "opacity-70")}>
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -31,6 +35,11 @@ export function PatientCard({ visit }: PatientCardProps) {
               {visit.legacyEntry && (
                 <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[11px]">
                   Old entry
+                </span>
+              )}
+              {visit.voided && (
+                <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[11px] font-medium text-foreground">
+                  Voided
                 </span>
               )}
             </p>
@@ -85,6 +94,26 @@ export function PatientCard({ visit }: PatientCardProps) {
         </button>
 
         {expanded && <p className="mt-3 text-sm text-foreground">{visit.address}</p>}
+
+        {visit.voided ? (
+          // Inline rather than behind a tap: these cards only appear when
+          // "Show voided" is deliberately on, and the reason is the point.
+          <div className="mt-3 rounded-md border border-border bg-muted/40 p-2.5 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Voided</span>
+            {visit.voidReason ? ` — ${visit.voidReason}` : ""}
+            {visit.voidedBy ? ` · by ${visit.voidedBy}` : ""}
+            {visit.voidedAt ? ` · ${formatVoidedAt(visit.voidedAt)}` : ""}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onVoid?.(visit)}
+            aria-label={`Void visit ${visit.patientId} for ${visit.name}`}
+            className="mt-2 flex h-11 w-full items-center justify-center gap-1.5 rounded-md border border-border text-sm font-medium text-muted-foreground active:bg-destructive/10"
+          >
+            <Ban size={16} /> Void visit
+          </button>
+        )}
       </CardContent>
     </Card>
   );
@@ -94,9 +123,10 @@ interface PatientCardListProps {
   visits: Visit[];
   isLoading?: boolean;
   search: string;
+  onVoid?: (visit: Visit) => void;
 }
 
-export function PatientCardList({ visits, isLoading, search }: PatientCardListProps) {
+export function PatientCardList({ visits, isLoading, search, onVoid }: PatientCardListProps) {
   if (isLoading) {
     return (
       <div className="space-y-3 md:hidden">
@@ -127,7 +157,7 @@ export function PatientCardList({ visits, isLoading, search }: PatientCardListPr
   return (
     <div className="space-y-3 md:hidden">
       {visits.map((visit) => (
-        <PatientCard key={visit.id} visit={visit} />
+        <PatientCard key={visit.id} visit={visit} onVoid={onVoid} />
       ))}
     </div>
   );

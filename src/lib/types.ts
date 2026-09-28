@@ -41,6 +41,16 @@ export interface Visit {
   createdAt: string;
   /** Operator display name — the accountability stamp. */
   recordedBy: string;
+  /**
+   * Struck from the record. Voided visits are excluded from every count, total
+   * and report; they are only ever listed when explicitly asked for.
+   */
+  voided: boolean;
+  /** Why it was voided. Always present on a voided row — it is required. */
+  voidReason: string | null;
+  voidedBy: string | null;
+  /** ISO instant, rendered in Asia/Dhaka. */
+  voidedAt: string | null;
 }
 
 export interface User {
@@ -209,6 +219,19 @@ function formatCalendarDate(date: string, options: Intl.DateTimeFormatOptions): 
     timeZone: "UTC",
     ...options,
   });
+}
+
+/** "29 Sept 2026, 10:12 am" in clinic time — when a visit was voided. */
+export function formatVoidedAt(iso: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: CLINIC_TZ,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(iso));
 }
 
 /** How a visit's time reads: a clock time, or the fact that it was backdated. */

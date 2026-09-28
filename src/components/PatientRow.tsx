@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { Ban, ChevronDown, ChevronUp } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   formatCurrency,
   formatDate,
   formatDay,
+  formatVoidedAt,
   getShiftBadgeClass,
   getShiftRowClass,
   totalCharged,
@@ -13,17 +15,23 @@ import {
   type Visit,
 } from "@/lib/types";
 
+/** Column count, so the voided-detail row can span the full width. */
+export const PATIENT_TABLE_COLUMNS = 10;
+
 interface PatientRowProps {
   visit: Visit;
   tabletMode?: boolean;
+  /** Opens the confirm dialog. Absent on an already-voided row. */
+  onVoid?: (visit: Visit) => void;
 }
 
-export function PatientRow({ visit, tabletMode = false }: PatientRowProps) {
+export function PatientRow({ visit, tabletMode = false, onVoid }: PatientRowProps) {
   const [expanded, setExpanded] = useState(false);
   const time = visitTimeDisplay(visit);
 
   return (
-    <TableRow className={getShiftRowClass(visit.shift)}>
+    <Fragment>
+    <TableRow className={cn(getShiftRowClass(visit.shift), visit.voided && "opacity-60")}>
       <TableCell className="sticky left-0 z-10 w-32 bg-inherit font-medium lg:static">
         {visit.patientId}
         {/* A separate fact from Backdated — this one is about the patient record
@@ -85,6 +93,40 @@ export function PatientRow({ visit, tabletMode = false }: PatientRowProps) {
           </div>
         )}
       </TableCell>
+      {/* Narrow action cell. Always rendered, never hover-only: a control that
+          only appears on hover is unusable on the desk tablet. */}
+      <TableCell className="w-12 text-right">
+        {visit.voided ? (
+          <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
+            Voided
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onVoid?.(visit)}
+            title={`Void visit ${visit.patientId}`}
+            aria-label={`Void visit ${visit.patientId} for ${visit.name}`}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Ban size={16} />
+          </button>
+        )}
+      </TableCell>
     </TableRow>
+
+    {/* Why it was voided, who by and when — shown inline rather than behind a
+        tap, since these rows only appear when "Show voided" is deliberately on
+        and the reason is the whole point of looking. */}
+    {visit.voided && (
+      <TableRow className="hover:bg-transparent">
+        <TableCell colSpan={PATIENT_TABLE_COLUMNS} className="py-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Voided</span>
+          {visit.voidReason ? ` — ${visit.voidReason}` : ""}
+          {visit.voidedBy ? ` · by ${visit.voidedBy}` : ""}
+          {visit.voidedAt ? ` · ${formatVoidedAt(visit.voidedAt)}` : ""}
+        </TableCell>
+      </TableRow>
+    )}
+    </Fragment>
   );
 }

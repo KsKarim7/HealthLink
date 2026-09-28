@@ -15,9 +15,17 @@ interface PatientTableProps {
   isLoading?: boolean;
   tabletMode?: boolean;
   search: string;
+  /** Opens the void-confirmation dialog for a row. */
+  onVoid?: (visit: Visit) => void;
 }
 
-export function PatientTable({ visits, isLoading, tabletMode = false, search }: PatientTableProps) {
+export function PatientTable({
+  visits,
+  isLoading,
+  tabletMode = false,
+  search,
+  onVoid,
+}: PatientTableProps) {
   const hidden = tabletMode ? "hidden lg:table-cell" : "";
 
   if (isLoading) {
@@ -34,7 +42,10 @@ export function PatientTable({ visits, isLoading, tabletMode = false, search }: 
               <TableHead className={hidden}>Day</TableHead>
               <TableHead>Time</TableHead>
               <TableHead>Shift</TableHead>
-                <TableHead className="text-right">Charged</TableHead>
+              <TableHead className="text-right">Charged</TableHead>
+              <TableHead className="w-12">
+                <span className="sr-only">Actions</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -49,6 +60,7 @@ export function PatientTable({ visits, isLoading, tabletMode = false, search }: 
                 <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                 <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                 <TableCell className="text-right"><Skeleton className="ml-auto h-4 w-16" /></TableCell>
+                <TableCell><Skeleton className="h-4 w-6" /></TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -82,11 +94,16 @@ export function PatientTable({ visits, isLoading, tabletMode = false, search }: 
             <TableHead>Time</TableHead>
             <TableHead>Shift</TableHead>
             <TableHead className="text-right">Charged</TableHead>
+            {/* Actions. Unlabelled so the column stays narrow; each button
+                carries its own accessible name. */}
+            <TableHead className="w-12">
+              <span className="sr-only">Actions</span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {visits.map((visit) => (
-            <PatientRow key={visit.id} visit={visit} tabletMode={tabletMode} />
+            <PatientRow key={visit.id} visit={visit} tabletMode={tabletMode} onVoid={onVoid} />
           ))}
         </TableBody>
       </Table>

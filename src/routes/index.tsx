@@ -9,13 +9,14 @@ import { PatientCardList } from "@/components/PatientCard";
 import { Pagination } from "@/components/Pagination";
 import { AddPatientModal } from "@/components/AddPatientModal";
 import { ChangePasswordModal } from "@/components/ChangePasswordModal";
+import { VoidVisitModal } from "@/components/VoidVisitModal";
 import { PrintDayReport } from "@/components/PrintDayReport";
 import { Button } from "@/components/ui/button";
 import { Printer, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { usePatients } from "@/hooks/usePatients";
 import { useDayTotals } from "@/hooks/useDayTotals";
-import { createVisit, getDayTotals, listDayVisits } from "@/lib/patients.server";
+import { createVisit, getDayTotals, listDayVisits, voidVisit } from "@/lib/patients.server";
 import { isAuthError } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
@@ -55,6 +56,10 @@ function HomePage() {
   // Which flow the one dialog is running: the everyday one, or old patients.
   const [addMode, setAddMode] = useState<"new" | "old">("new");
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  // Off by default: a voided visit is not part of the day's work.
+  const [showVoided, setShowVoided] = useState(false);
+  // The visit awaiting confirmation, or null when the dialog is closed.
+  const [voidTarget, setVoidTarget] = useState<Visit | null>(null);
   const [totalsToken, setTotalsToken] = useState(0);
   // Full-day rows for the printable report — fetched on demand, unpaginated,
   // and deliberately independent of the on-screen shift/page/search state.
@@ -69,6 +74,7 @@ function HomePage() {
     page,
     search,
     allDates,
+    includeVoided: showVoided,
   });
   const { totals, isLoading: totalsLoading } = useDayTotals(date, totalsToken);
 
@@ -129,6 +135,19 @@ function HomePage() {
     return saved;
   };
 
+  const handleVoid = async (visit: Visit, reason: string) => {
+    // The server decides everything here; this only reports the outcome. It
+    // deliberately does not catch — the dialog shows the error and stays open.
+    await voidVisit({ data: { visitId: visit.id, reason } });
+    setVoidTarget(null);
+    // The row leaves the default view and the totals drop it, both immediately.
+    refresh();
+    setTotalsToken((t) => t + 1);
+    toast.success(`Visit voided (${visit.patientId})`, {
+      description: `${visit.name} · no longer counted in totals or the report.`,
+    });
+  };
+
   const handlePrint = async () => {
     setPrintLoading(true);
     try {
@@ -168,12 +187,15 @@ function HomePage() {
   // all-dates view, then the normal single day. The subtitle and the summary strip
   // both follow this, so neither can describe a different set than the table.
   const scope: "search" | "all" | "day" = searchTerm ? "search" : allDates ? "all" : "day";
+  // With voided rows shown, the table holds more rows than the totals below it
+  // count. Saying so keeps the two from looking like they disagree.
+  const voidedNote = showVoided ? " · including voided" : "";
   const scopeLabel =
     scope === "search"
-      ? `Search results for “${searchTerm}” · ${countLabel} · all dates and shifts`
+      ? `Search results for “${searchTerm}” · ${countLabel} · all dates and shifts${voidedNote}`
       : scope === "all"
-        ? `All patients · ${countLabel} · ${shiftLabel}`
-        : `${countLabel} · ${dayLabel} · ${shiftLabel}`;
+        ? `All patients · ${countLabel} · ${shiftLabel}${voidedNote}`
+        : `${countLabel} · ${dayLabel} · ${shiftLabel}${voidedNote}`;
 
   return (
     <>
@@ -232,6 +254,20 @@ function HomePage() {
               >
                 View all patients
               </Button>
+              {/* Reveals voided rows in whatever the current view is. They stay
+                  out of the summary strip and the printed report either way. */}
+              <Button
+                type="button"
+                variant={showVoided ? "default" : "outline"}
+                aria-pressed={showVoided}
+                onClick={() => {
+                  setShowVoided((v) => !v);
+                  setPage(1);
+                }}
+                className="h-11"
+              >
+                Show voided
+              </Button>
               {/* Only meaningful for a single day: a search or the all-dates
                   view is not a day, so the control is hidden there. */}
               {scope === "day" && (
@@ -277,10 +313,21 @@ function HomePage() {
           )}
 
           <div className="hidden md:block">
-            <PatientTable visits={visits} isLoading={isLoading} tabletMode={false} search={search} />
+            <PatientTable
+              visits={visits}
+              isLoading={isLoading}
+              tabletMode={false}
+              search={search}
+              onVoid={setVoidTarget}
+            />
           </div>
           <div className="md:hidden">
-            <PatientCardList visits={visits} isLoading={isLoading} search={search} />
+            <PatientCardList
+              visits={visits}
+              isLoading={isLoading}
+              search={search}
+              onVoid={setVoidTarget}
+            />
           </div>
 
           {totalPages > 1 && (
@@ -299,6 +346,12 @@ function HomePage() {
         // Only the rows of *today's* day view are "today's list"; search and
         // all-dates rows span other days and would trigger false warnings.
         todaysVisits={scope === "day" && date === todayInClinicTz() ? visits : undefined}
+      />
+
+      <VoidVisitModal
+        visit={voidTarget}
+        onOpenChange={(open) => !open && setVoidTarget(null)}
+        onConfirm={handleVoid}
       />
 
       <ChangePasswordModal
