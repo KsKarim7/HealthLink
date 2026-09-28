@@ -65,6 +65,25 @@ Sessions are rows in `sessions`, referenced by an opaque random token in an
 httpOnly cookie. Logging out deletes the row, so the cookie cannot be replayed.
 Every server function checks for a valid session before doing anything.
 
+### Changing the password
+
+Two ways, for two situations:
+
+| | Where | Needs the current password? |
+|---|---|---|
+| **Change password** | the key icon in the navbar, while signed in | yes |
+| `node scripts/set-site-password.mjs` | a terminal on your own machine | no |
+
+The in-app dialog asks for the current password and the new one twice. On
+success the device that made the change stays signed in and **every other
+session is destroyed**, so anyone who should no longer have access is out.
+
+The script is the recovery path: it runs locally against your database and never
+asks for the current password, so it is how you get back in if the shared
+password is forgotten. Both routes write the same hash format and enforce the
+same minimum length — `MIN_PASSWORD_LENGTH` in `src/lib/password.js`, the one
+place either of them reads it from.
+
 ### Who visits are recorded under
 
 Each visit stores a `recorded_by` value, decided server-side and never accepted
@@ -95,6 +114,8 @@ table, the mobile cards or the printed report.
   `.site-password` are gitignored; never commit either.
 - Password hashing is PBKDF2-HMAC-SHA256 (600,000 iterations) via the Web Crypto
   API, chosen so the production build has no Node-only or native dependency.
+  The app and the recovery script share that code, so a hash written by either
+  one verifies against the other.
 - Every server function rejects calls without a valid session, so the redirect to
   `/login` is convenience rather than the actual protection.
 - One shared credential means there is no per-person accountability at all: the

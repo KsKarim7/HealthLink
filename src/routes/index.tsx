@@ -8,6 +8,7 @@ import { PatientTable } from "@/components/PatientTable";
 import { PatientCardList } from "@/components/PatientCard";
 import { Pagination } from "@/components/Pagination";
 import { AddPatientModal } from "@/components/AddPatientModal";
+import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { PrintDayReport } from "@/components/PrintDayReport";
 import { Button } from "@/components/ui/button";
 import { Printer, Loader2 } from "lucide-react";
@@ -53,6 +54,7 @@ function HomePage() {
   const [addOpen, setAddOpen] = useState(false);
   // Which flow the one dialog is running: the everyday one, or old patients.
   const [addMode, setAddMode] = useState<"new" | "old">("new");
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [totalsToken, setTotalsToken] = useState(0);
   // Full-day rows for the printable report — fetched on demand, unpaginated,
   // and deliberately independent of the on-screen shift/page/search state.
@@ -196,6 +198,7 @@ function HomePage() {
           setPage(1);
         }}
         onLogout={() => void handleLogout()}
+        onChangePassword={() => setChangePasswordOpen(true)}
       />
 
       <main className="flex-1 p-4 pb-28 md:px-6 md:pb-6 lg:px-8">
@@ -296,6 +299,17 @@ function HomePage() {
         // Only the rows of *today's* day view are "today's list"; search and
         // all-dates rows span other days and would trigger false warnings.
         todaysVisits={scope === "day" && date === todayInClinicTz() ? visits : undefined}
+      />
+
+      <ChangePasswordModal
+        open={changePasswordOpen}
+        onOpenChange={setChangePasswordOpen}
+        onChanged={() => {
+          // The caller keeps their session, so there is nothing to redirect to
+          // — only the other devices were signed out.
+          setChangePasswordOpen(false);
+          toast.success("Password changed. Other devices have been signed out.");
+        }}
       />
 
       <Toaster

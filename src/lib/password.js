@@ -30,6 +30,22 @@
  */
 export const PBKDF2_ITERATIONS = 600_000;
 
+/**
+ * Minimum length for the shared password, in one place.
+ *
+ * Both routes to setting it — the in-app Change password dialog and
+ * `scripts/set-site-password.mjs` — import this, so the recovery script can
+ * never accept something the app would refuse, or the reverse.
+ */
+export const MIN_PASSWORD_LENGTH = 10;
+
+/**
+ * Upper bound. Nothing needs a password this long, and every candidate costs a
+ * full PBKDF2 derivation, so an unbounded field is a free way to make the
+ * server burn CPU. Checked before any hashing happens.
+ */
+export const MAX_PASSWORD_LENGTH = 200;
+
 const KEY_BITS = 256;
 const SALT_BYTES = 16;
 const PREFIX = "pbkdf2-sha256";

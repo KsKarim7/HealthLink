@@ -1,4 +1,4 @@
-import { History, LogOut, Plus, User2 } from "lucide-react";
+import { History, KeyRound, LogOut, Plus, User2 } from "lucide-react";
 import { ShiftToggle } from "./ShiftToggle";
 import { SearchBox } from "./SearchBox";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,8 @@ interface NavbarProps {
   search: string;
   onSearchChange: (value: string) => void;
   onLogout: () => void;
+  /** Opens the shared-password change dialog. */
+  onChangePassword: () => void;
   className?: string;
 }
 
@@ -24,6 +26,7 @@ export function Navbar({
   search,
   onSearchChange,
   onLogout,
+  onChangePassword,
   className,
 }: NavbarProps) {
   return (
@@ -70,6 +73,18 @@ export function Navbar({
             <History size={18} />
             Add Old Patients
           </button>
+          {/* Icon-only: a third labelled button here would crowd the two that
+              matter. 44px target, and the label is on the element for
+              screen readers and as a tooltip. */}
+          <button
+            type="button"
+            onClick={onChangePassword}
+            title="Change password"
+            aria-label="Change password"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-white/90 transition-colors hover:bg-white/10"
+          >
+            <KeyRound size={18} />
+          </button>
           <button
             type="button"
             onClick={onLogout}
@@ -83,6 +98,14 @@ export function Navbar({
         {/* Mobile top bar: search + logout */}
         <div className="flex items-center gap-2 md:hidden">
           <SearchBox variant="mobile" value={search} onChange={onSearchChange} />
+          <button
+            type="button"
+            onClick={onChangePassword}
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-white/90 hover:bg-white/10"
+            aria-label="Change password"
+          >
+            <KeyRound size={20} />
+          </button>
           <button
             type="button"
             onClick={onLogout}

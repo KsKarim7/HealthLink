@@ -9,20 +9,21 @@
  *
  * The password is never printed, never logged, never written to disk by this
  * script and never sent anywhere except as a PBKDF2 digest to your own database.
- * Nothing else in the project — not the app, not the seed script, not a
- * migration — can put a usable password in `site_auth`; this is the only way in,
- * and the same command is how you change it later.
+ * This is the recovery path: it runs locally, needs no current password, and so
+ * is how you get back in if the shared password is forgotten. Day to day, the
+ * signed-in Change password dialog in the app does the same job and does require
+ * the current one.
  *
  * Changing the password signs every browser out, because every existing session
  * row is deleted.
  */
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { hashPassword } from "../src/lib/password.js";
+// Same module the app uses, so the two can never disagree about the hash format
+// or the minimum length.
+import { hashPassword, MIN_PASSWORD_LENGTH } from "../src/lib/password.js";
 
 process.loadEnvFile();
-
-const MIN_LENGTH = 10;
 
 const args = process.argv.slice(2);
 
@@ -85,8 +86,8 @@ async function readPassword() {
 
 const password = await readPassword();
 
-if (password.length < MIN_LENGTH) {
-  fail(`Too short — use at least ${MIN_LENGTH} characters. Nothing was changed.`);
+if (password.length < MIN_PASSWORD_LENGTH) {
+  fail(`Too short — use at least ${MIN_PASSWORD_LENGTH} characters. Nothing was changed.`);
 }
 
 console.log("Hashing (this takes a moment by design)…");
@@ -107,4 +108,4 @@ const cleared = await sql`delete from sessions returning id`;
 
 console.log("\nShared password updated.");
 console.log(`Signed out ${cleared.length} active session(s).`);
-console.log("Everyone signs in with the new password, then picks their name as usual.");
+console.log("Everyone signs in again with the new password.");
