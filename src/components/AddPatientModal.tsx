@@ -14,8 +14,14 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import { AddPatientForm } from "./AddPatientForm";
-import { formatCurrency, totalCharged, type Visit, type VisitDraft } from "@/lib/types";
+import { AddPatientForm, type AddPatientMode } from "./AddPatientForm";
+import {
+  formatClinicDateShort,
+  formatCurrency,
+  totalCharged,
+  type Visit,
+  type VisitDraft,
+} from "@/lib/types";
 
 interface AddPatientModalProps {
   open: boolean;
@@ -24,6 +30,8 @@ interface AddPatientModalProps {
   onSubmit: (draft: VisitDraft) => Promise<Visit>;
   /** Visits already shown for the selected day, for the repeat-visit warning. */
   todaysVisits?: Visit[];
+  /** "old" bills an unrecognised phone as returning and offers a visit date. */
+  mode?: AddPatientMode;
 }
 
 /**
@@ -51,6 +59,11 @@ function AddedConfirmation({
       <p className="mt-1 text-center text-sm text-muted-foreground">
         {visit.patientId} · Total: {formatCurrency(totalCharged(visit))} · Shift: {visit.shift}
       </p>
+      {visit.backdated && (
+        <p className="mt-1 text-center text-sm font-medium text-foreground">
+          Recorded for {formatClinicDateShort(visit.visitAt.slice(0, 10))}
+        </p>
+      )}
       {visit.medicineWeeks > 0 && (
         <p className="mt-1 text-center text-xs text-muted-foreground">
           Appointment {formatCurrency(visit.fee)} + Medicine ({visit.medicineWeeks} wk
@@ -77,13 +90,26 @@ function AddedConfirmation({
   );
 }
 
-export function AddPatientModal({ open, onOpenChange, onSubmit, todaysVisits }: AddPatientModalProps) {
+export function AddPatientModal({
+  open,
+  onOpenChange,
+  onSubmit,
+  todaysVisits,
+  mode = "new",
+}: AddPatientModalProps) {
   const isDesktop = useMediaQuery("(min-width: 640px)");
   const [justAdded, setJustAdded] = useState<Visit | null>(null);
+  // Lives here rather than in the form: "+ Add Another" unmounts the form to
+  // clear it, and a batch of old visits is usually entered for the same day, so
+  // the date has to outlive that remount. Closing the dialog resets it.
+  const [visitDate, setVisitDate] = useState("");
 
   // Reset "just added" state when modal closes.
   useEffect(() => {
-    if (!open) setJustAdded(null);
+    if (!open) {
+      setJustAdded(null);
+      setVisitDate("");
+    }
   }, [open]);
 
   // Confirm using the record the server actually stored, not the submitted draft.
@@ -97,10 +123,13 @@ export function AddPatientModal({ open, onOpenChange, onSubmit, todaysVisits }: 
     setJustAdded(null);
   };
 
-  const title = justAdded ? "Patient added" : "Add Patient";
+  const isOldMode = mode === "old";
+  const title = justAdded ? "Patient added" : isOldMode ? "Add Old Patient" : "Add Patient";
   const description = justAdded
     ? `${justAdded.name} (${justAdded.patientId}) has been added. Add another?`
-    : "Enter the patient details. Fee is computed automatically.";
+    : isOldMode
+      ? "Billed as an old patient: ৳300 + ৳300 per week of medicine."
+      : "Enter the patient details. Fee is computed automatically.";
 
   if (isDesktop === null) return null;
 
@@ -124,6 +153,9 @@ export function AddPatientModal({ open, onOpenChange, onSubmit, todaysVisits }: 
               onSubmit={handleSubmit}
               onCancel={() => onOpenChange(false)}
               todaysVisits={todaysVisits}
+              mode={mode}
+              visitDate={visitDate}
+              onVisitDateChange={setVisitDate}
             />
           )}
         </DialogContent>
@@ -150,6 +182,9 @@ export function AddPatientModal({ open, onOpenChange, onSubmit, todaysVisits }: 
             onSubmit={handleSubmit}
             onCancel={() => onOpenChange(false)}
             todaysVisits={todaysVisits}
+            mode={mode}
+            visitDate={visitDate}
+            onVisitDateChange={setVisitDate}
           />
         )}
       </DrawerContent>

@@ -306,6 +306,45 @@
     color: #444;
   }
 
+  /* One shift: heading, its visits, then its own summary. */
+  #print-report .shift-block {
+    margin-top: 8mm;
+  }
+  #print-report .shift-block:first-of-type {
+    margin-top: 0;
+  }
+  #print-report .shift-block h2 {
+    margin: 0 0 3mm;
+    font-size: 13pt;
+    font-weight: 600;
+    border-bottom: 1px solid #000;
+    padding-bottom: 1.5mm;
+    /* Never leave a shift heading stranded at the foot of a page. */
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  /* The four-figure recap under each shift's table. Visually subordinate to the
+     visit table above it and to the overall summary at the end. */
+  #print-report .shift-summary {
+    margin-top: 3mm;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  #print-report .shift-summary th,
+  #print-report .shift-summary td {
+    font-size: 9.5pt;
+  }
+  #print-report .shift-summary th {
+    border-bottom: 1px solid #666;
+    font-weight: 600;
+    color: #333;
+  }
+  #print-report .shift-summary td {
+    border-bottom: none;
+    font-weight: 600;
+  }
+
   #print-report .report-summary {
     margin-top: 8mm;
     page-break-inside: avoid;

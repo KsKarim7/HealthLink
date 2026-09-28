@@ -20,6 +20,20 @@ export const SHIFT_LABELS: Record<Shift, string> = {
   evening: "Evening",
 };
 
+/**
+ * Wall-clock time (Asia/Dhaka) stamped on a backdated visit.
+ *
+ * An old visit is entered days or months later and nobody remembers the minute
+ * it happened, so the shift supplies a nominal time. It exists to place the row
+ * inside the right shift and to order it sensibly against its neighbours — it is
+ * not a claim about when the patient actually walked in. The real moment of data
+ * entry is always kept separately in `visits.created_at`.
+ */
+export const BACKDATED_SHIFT_TIME: Record<Shift, string> = {
+  morning: "10:00",
+  evening: "18:00",
+};
+
 // 11 digits; real Bangladeshi mobile prefixes are 013-019.
 export const PHONE_REGEX = /^01[3-9]\d{8}$/;
 export const PHONE_INVALID_MESSAGE =

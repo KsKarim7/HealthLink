@@ -91,7 +91,16 @@ export const patients = pgTable("patients", {
 
 /**
  * One row per attendance — this is what the homepage table lists.
- * `visit_at` is a UTC instant; "today" is always computed in Asia/Dhaka.
+ *
+ * `visit_at` is the instant of the visit: the real one for a normal entry, a
+ * nominal one (the chosen date at the shift's standard hour) for a backdated
+ * entry. Every date filter and day total reads it, so a backdated visit counts
+ * under the day it happened.
+ *
+ * `created_at` is always the real moment the row was entered, and is never
+ * moved. The two differ only for backdated rows — but do NOT infer `backdated`
+ * by comparing them: seeded and imported rows legitimately have past visit
+ * dates with recent creation times. The flag is stored explicitly instead.
  */
 export const visits = pgTable(
   "visits",
@@ -109,6 +118,15 @@ export const visits = pgTable(
     /** Server-computed medicine charge. The total is fee + medicineFee, never stored. */
     medicineFee: integer("medicine_fee").notNull().default(0),
     isNewPatient: boolean("is_new_patient").notNull(),
+    /**
+     * True only where this visit created a brand-new patient record that was
+     * nevertheless billed as returning — the "Add Old Patients" path, used when
+     * someone the clinic has treated for years is finally entered into the
+     * system. An ordinary returning visit by an already-known patient is false.
+     */
+    legacyEntry: boolean("legacy_entry").notNull().default(false),
+    /** True where the operator chose `visit_at` rather than it being "now". */
+    backdated: boolean("backdated").notNull().default(false),
     recordedBy: text("recorded_by").notNull(),
     voided: boolean("voided").notNull().default(false),
     voidReason: text("void_reason"),

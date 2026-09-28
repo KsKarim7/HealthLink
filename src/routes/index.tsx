@@ -20,6 +20,7 @@ import { isAuthError } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import {
+  formatClinicDateShort,
   formatCurrency,
   formatDayLabel,
   totalCharged,
@@ -54,6 +55,8 @@ function HomePage() {
   // "View all patients": every date instead of `date`. Picking a date turns it off.
   const [allDates, setAllDates] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  // Which flow the one dialog is running: the everyday one, or old patients.
+  const [addMode, setAddMode] = useState<"new" | "old">("new");
   // Set by the navbar's Switch control: reopens the picker mid-session.
   const [switching, setSwitching] = useState(false);
   const [totalsToken, setTotalsToken] = useState(0);
@@ -140,8 +143,13 @@ function HomePage() {
       saved.medicineWeeks > 0
         ? `${formatCurrency(saved.fee)} + ${saved.medicineWeeks} wk medicine ${formatCurrency(saved.medicineFee)} = ${formatCurrency(totalCharged(saved))}`
         : `${formatCurrency(totalCharged(saved))}`;
+    // A backdated visit will not appear in the list below (that shows the
+    // selected day), so the toast has to say where it went.
+    const when = saved.backdated
+      ? ` · recorded for ${formatClinicDateShort(saved.visitAt.slice(0, 10))}`
+      : "";
     toast.success(`${saved.name} added (${saved.patientId})`, {
-      description: `${breakdown} · Shift: ${saved.shift}`,
+      description: `${breakdown} · Shift: ${saved.shift}${when}`,
     });
     return saved;
   };
@@ -201,7 +209,14 @@ function HomePage() {
           setShift(s);
           setPage(1);
         }}
-        onAddPatient={() => setAddOpen(true)}
+        onAddPatient={() => {
+          setAddMode("new");
+          setAddOpen(true);
+        }}
+        onAddOldPatients={() => {
+          setAddMode("old");
+          setAddOpen(true);
+        }}
         search={search}
         onSearchChange={(s) => {
           setSearch(s);
@@ -306,6 +321,7 @@ function HomePage() {
         open={addOpen}
         onOpenChange={setAddOpen}
         onSubmit={handleAddPatient}
+        mode={addMode}
         // Only the rows of *today's* day view are "today's list"; search and
         // all-dates rows span other days and would trigger false warnings.
         todaysVisits={scope === "day" && date === todayInClinicTz() ? visits : undefined}

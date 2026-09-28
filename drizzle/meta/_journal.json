@@ -22,6 +22,13 @@
       "when": 1789923779427,
       "tag": "0002_yellow_the_fury",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790586458384,
+      "tag": "0003_dear_darkhawk",
+      "breakpoints": true
     }
   ]
 }

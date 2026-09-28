@@ -31,8 +31,14 @@ export interface Visit {
   medicineWeeks: number;
   medicineFee: number;
   isNewPatient: boolean;
-  /** UTC instant, ISO string. Rendered in Asia/Dhaka. */
+  /** UTC instant, ISO string. Rendered in Asia/Dhaka. Nominal when `backdated`. */
   visitAt: string;
+  /** This visit registered a new patient but billed them as returning. */
+  legacyEntry: boolean;
+  /** `visitAt` was chosen by the operator, not taken from the clock. */
+  backdated: boolean;
+  /** When the row was actually entered. Always real, even for backdated rows. */
+  createdAt: string;
   /** Operator display name — the accountability stamp. */
   recordedBy: string;
 }
@@ -56,8 +62,17 @@ export interface PatientFormData {
  * What the Add Patient form sends to the server. Raw input only — the phone
  * alone determines identity, and the server assigns code, fee, isNewPatient and
  * the timestamp. A client-sent fee is ignored (stripped by the zod parse).
+ *
+ * The two extras below are requests, not instructions: the server decides what
+ * they mean, and rejects them outright in combinations it does not allow.
  */
-export type VisitDraft = PatientFormData;
+export type VisitDraft = PatientFormData & {
+  /** Bill an unknown phone as a returning patient ("Add Old Patients"). */
+  asOldPatient?: boolean;
+  /** A calendar date, YYYY-MM-DD. Never a timestamp — the server builds the
+   *  instant from it in Asia/Dhaka, so browser time cannot influence it. */
+  visitDate?: string;
+};
 
 export interface VisitPage {
   rows: Visit[];
@@ -69,6 +84,10 @@ export interface VisitPage {
 export interface ShiftTotals {
   patients: number;
   fees: number;
+  /** New vs returning within this shift, so a per-shift summary need not
+   *  recount the rows itself and end up disagreeing with the day totals. */
+  newPatients: number;
+  returningPatients: number;
 }
 
 export interface DayTotals {
@@ -76,6 +95,9 @@ export interface DayTotals {
   all: ShiftTotals;
   morning: ShiftTotals;
   evening: ShiftTotals;
+  /** Day-wide new/returning. Identical to `all.newPatients` /
+   *  `all.returningPatients`; kept because the on-screen summary strip and the
+   *  report's overall summary have always read them from here. */
   newPatients: number;
   returningPatients: number;
 }
@@ -162,6 +184,64 @@ export function formatTime(dateString: string): string {
     minute: "2-digit",
     hour12: true,
   });
+}
+
+/** "Thursday, 12 March 2026" from a YYYY-MM-DD clinic date. */
+export function formatClinicDateLong(date: string): string {
+  return formatCalendarDate(date, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+/** "Thu 12 Mar 2026" from a YYYY-MM-DD clinic date. */
+export function formatClinicDateShort(date: string): string {
+  return formatCalendarDate(date, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
+/**
+ * Formats a date-only string without letting a timezone shift it.
+ *
+ * "2026-03-12" parsed as a Date is midnight UTC, which in a negative-offset
+ * locale is still 11 March — so the calendar date is pinned to UTC and rendered
+ * there, rather than being run through the clinic timezone like an instant.
+ */
+function formatCalendarDate(date: string, options: Intl.DateTimeFormatOptions): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", {
+    timeZone: "UTC",
+    ...options,
+  });
+}
+
+/** How a visit's time reads: a clock time, or the fact that it was backdated. */
+export interface VisitTimeDisplay {
+  /** "09:30 am" normally; "Backdated" when the time is nominal. */
+  primary: string;
+  /** "entered 28 Sept 2026" for backdated rows, otherwise null. */
+  secondary: string | null;
+  backdated: boolean;
+}
+
+/**
+ * The single source for the time cell in the table, the mobile cards and the
+ * printed report.
+ *
+ * A backdated row's `visitAt` carries a made-up hour, so showing it as a clock
+ * time would state something nobody knows. The word "Backdated" replaces it,
+ * with the real entry date underneath — text, not colour, so it survives
+ * monochrome printing and does not depend on distinguishing hues.
+ */
+export function visitTimeDisplay(visit: {
+  visitAt: string;
+  backdated: boolean;
+  createdAt: string;
+}): VisitTimeDisplay {
+  if (!visit.backdated) {
+    return { primary: formatTime(visit.visitAt), secondary: null, backdated: false };
+  }
+  return {
+    primary: "Backdated",
+    secondary: `entered ${formatDate(visit.createdAt)}`,
+    backdated: true,
+  };
 }
 
 export function getShiftBadgeClass(shift: Shift): string {

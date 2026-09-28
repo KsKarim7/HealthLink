@@ -6,10 +6,10 @@ import {
   formatCurrency,
   formatDate,
   formatDay,
-  formatTime,
   getShiftBadgeClass,
   getShiftRowClass,
   totalCharged,
+  visitTimeDisplay,
   type Visit,
 } from "@/lib/types";
 
@@ -20,11 +20,20 @@ interface PatientRowProps {
 
 export function PatientRow({ visit, tabletMode = false }: PatientRowProps) {
   const [expanded, setExpanded] = useState(false);
+  const time = visitTimeDisplay(visit);
 
   return (
     <TableRow className={getShiftRowClass(visit.shift)}>
       <TableCell className="sticky left-0 z-10 w-32 bg-inherit font-medium lg:static">
         {visit.patientId}
+        {/* A separate fact from Backdated — this one is about the patient record
+            being created late, not about when the visit happened. Both can show
+            on one row. Text rather than colour alone. */}
+        {visit.legacyEntry && (
+          <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+            Old entry
+          </span>
+        )}
       </TableCell>
       <TableCell className="sticky left-32 z-10 bg-inherit font-medium lg:static">
         {visit.name}
@@ -52,7 +61,12 @@ export function PatientRow({ visit, tabletMode = false }: PatientRowProps) {
       <TableCell className={tabletMode ? "hidden lg:table-cell" : ""}>
         {formatDay(visit.visitAt)}
       </TableCell>
-      <TableCell>{formatTime(visit.visitAt)}</TableCell>
+      <TableCell className="whitespace-nowrap">
+        <div>{time.primary}</div>
+        {time.secondary && (
+          <div className="text-xs font-normal text-muted-foreground">{time.secondary}</div>
+        )}
+      </TableCell>
       <TableCell>
         <Badge variant="outline" className={getShiftBadgeClass(visit.shift)}>
           {visit.shift === "morning" ? "Morning" : "Evening"}

@@ -5,10 +5,10 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import {
   formatCurrency,
   formatDate,
-  formatTime,
   getShiftBadgeClass,
   getShiftRowClass,
   totalCharged,
+  visitTimeDisplay,
   type Visit,
 } from "@/lib/types";
 
@@ -18,6 +18,7 @@ interface PatientCardProps {
 
 export function PatientCard({ visit }: PatientCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const time = visitTimeDisplay(visit);
 
   return (
     <Card className={getShiftRowClass(visit.shift)}>
@@ -25,7 +26,14 @@ export function PatientCard({ visit }: PatientCardProps) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-semibold text-foreground">{visit.name}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{visit.patientId}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {visit.patientId}
+              {visit.legacyEntry && (
+                <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[11px]">
+                  Old entry
+                </span>
+              )}
+            </p>
           </div>
           <Badge variant="outline" className={getShiftBadgeClass(visit.shift)}>
             {visit.shift === "morning" ? "Morning" : "Evening"}
@@ -51,7 +59,12 @@ export function PatientCard({ visit }: PatientCardProps) {
         )}
 
         <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
-          <span>{formatTime(visit.visitAt)}</span>
+          <span>
+            {time.primary}
+            {time.secondary && (
+              <span className="ml-1 text-xs">({time.secondary})</span>
+            )}
+          </span>
           <span>{formatDate(visit.visitAt)}</span>
         </div>
 

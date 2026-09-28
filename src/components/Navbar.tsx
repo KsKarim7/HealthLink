@@ -1,4 +1,4 @@
-import { LogOut, Plus, Repeat, User2 } from "lucide-react";
+import { History, LogOut, Plus, Repeat, User2 } from "lucide-react";
 import { ShiftToggle } from "./ShiftToggle";
 import { SearchBox } from "./SearchBox";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,8 @@ interface NavbarProps {
   shift: Shift | "all";
   onShiftChange: (shift: Shift | "all") => void;
   onAddPatient: () => void;
+  /** Opens the same dialog in old-patient mode. */
+  onAddOldPatients: () => void;
   search: string;
   onSearchChange: (value: string) => void;
   onLogout: () => void;
@@ -23,6 +25,7 @@ export function Navbar({
   shift,
   onShiftChange,
   onAddPatient,
+  onAddOldPatients,
   search,
   onSearchChange,
   onLogout,
@@ -63,6 +66,16 @@ export function Navbar({
           >
             <Plus size={18} />
             Add Patient
+          </button>
+          {/* Secondary by design: registering historical patients is occasional
+              work, and must not compete with the everyday action beside it. */}
+          <button
+            type="button"
+            onClick={onAddOldPatients}
+            className="inline-flex h-11 items-center gap-1.5 rounded-lg border border-white/40 px-4 text-sm font-medium text-white transition-colors hover:bg-white/10"
+          >
+            <History size={18} />
+            Add Old Patients
           </button>
           {/* Current operator + one-tap handoff. Sits next to Logout because
               switching names is the common case and logging out is not. */}
@@ -128,7 +141,17 @@ export function Navbar({
           >
             <Plus size={28} />
           </button>
-          <div className="w-20" />
+          {/* Takes over the spacer that balanced the raised button, so the bar
+              stays symmetrical. 44px tall minimum, clear of the FAB. */}
+          <button
+            type="button"
+            onClick={onAddOldPatients}
+            className="flex h-11 w-20 flex-col items-center justify-center rounded-lg border border-white/40 text-[11px] font-medium leading-tight text-white active:bg-white/10"
+            aria-label="Add old patients"
+          >
+            <History size={16} />
+            Old
+          </button>
         </div>
       </div>
     </>

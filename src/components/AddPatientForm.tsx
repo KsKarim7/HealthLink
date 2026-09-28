@@ -2,24 +2,40 @@ import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Phone, Loader2, Check, AlertCircle, User, MapPin, Stethoscope, Pill } from "lucide-react";
+import {
+  Phone,
+  Loader2,
+  Check,
+  AlertCircle,
+  User,
+  MapPin,
+  Stethoscope,
+  Pill,
+  CalendarDays,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ShiftToggle } from "./ShiftToggle";
 import { WeeksStepper } from "./WeeksStepper";
 import { usePatientLookup } from "@/hooks/usePatientLookup";
+import { cn } from "@/lib/utils";
 import { MEDICINE, PHONE_INVALID_MESSAGE, PHONE_REGEX } from "@/lib/constants";
 import {
   computeFee,
   computeMedicineFee,
+  formatClinicDateLong,
   formatCurrency,
   isValidPhone,
+  todayInClinicTz,
   type PatientFormData,
   type Shift,
   type Visit,
   type VisitDraft,
 } from "@/lib/types";
+
+/** "new" is the everyday desk flow; "old" bills an unknown phone as returning. */
+export type AddPatientMode = "new" | "old";
 
 const NAME_MIN = 2;
 const ADDRESS_MIN = 2;
@@ -38,9 +54,27 @@ interface AddPatientFormProps {
   onCancel: () => void;
   /** Visits already logged for the selected day, for the repeat-visit warning. */
   todaysVisits?: Visit[];
+  mode?: AddPatientMode;
+  /**
+   * Held by the modal, not here, so "+ Add Another" keeps the chosen date while
+   * this form is unmounted and remounted empty. Only used in old mode.
+   */
+  visitDate?: string;
+  onVisitDateChange?: (date: string) => void;
 }
 
-export function AddPatientForm({ onSubmit, onCancel, todaysVisits }: AddPatientFormProps) {
+export function AddPatientForm({
+  onSubmit,
+  onCancel,
+  todaysVisits,
+  mode = "new",
+  visitDate = "",
+  onVisitDateChange,
+}: AddPatientFormProps) {
+  const isOldMode = mode === "old";
+  const today = todayInClinicTz();
+  // Only a date strictly before today backdates anything; today is just today.
+  const isBackdating = isOldMode && !!visitDate && visitDate < today;
   const [submitError, setSubmitError] = useState<string | null>(null);
   const form = useForm<PatientFormData>({
     resolver: zodResolver(patientSchema),
@@ -63,10 +97,16 @@ export function AddPatientForm({ onSubmit, onCancel, todaysVisits }: AddPatientF
 
   // One phone = one person: the lookup resolves to a single patient or nobody.
   const { match, isLoading: lookupLoading } = usePatientLookup(phone ?? "");
-  const isNewPatient = !match;
+  // The same verdict the server will reach: a known phone is always returning,
+  // and in old mode an unknown one is billed as returning too. Both sides run
+  // computeFee/computeMedicineFee, so the quote matches what gets stored.
+  const isNewPatient = !match && !isOldMode;
   const appointmentFee = computeFee(isNewPatient);
   // Recomputed on every render, so it follows both the stepper and the
   // new/returning status as the phone lookup resolves.
+  // A backdated visit must not rewrite a known patient's current details, so the
+  // fields are shown but not editable. Clearing the date unlocks them again.
+  const identityLocked = isBackdating && !!match;
   const weeks = medicineWeeks ?? 0;
   const medicineFee = computeMedicineFee(weeks, isNewPatient);
   const total = appointmentFee + medicineFee;
@@ -99,8 +139,13 @@ export function AddPatientForm({ onSubmit, onCancel, todaysVisits }: AddPatientF
   // A returning patient is the normal case, so only warn about a repeat visit
   // already logged for the same phone on the day being viewed. The rows handed in
   // are already scoped to that date by the server, so no local-time check here.
+  //
+  // Backdating deliberately skips the warning: the rows on hand belong to the
+  // day on screen, not to the chosen past date, so they cannot answer whether
+  // that phone was already seen then. Checking properly would need a query the
+  // client does not have, and a warning about the wrong day is worse than none.
   const alreadyLoggedToday =
-    phoneIsValid && !!todaysVisits?.some((v) => v.phone === phone);
+    !isBackdating && phoneIsValid && !!todaysVisits?.some((v) => v.phone === phone);
 
   // What still blocks Submit, in the same order as the fields.
   const missing: string[] = [];
@@ -126,6 +171,11 @@ export function AddPatientForm({ onSubmit, onCancel, todaysVisits }: AddPatientF
         address: data.address,
         shift: data.shift,
         medicineWeeks: data.medicineWeeks ?? 0,
+        // Sent only in old mode. The server rejects a visitDate without this
+        // flag, so the regular dialog can never backdate even if tampered with.
+        ...(isOldMode
+          ? { asOldPatient: true, ...(visitDate ? { visitDate } : {}) }
+          : {}),
       });
     } catch (err) {
       setSubmitError(
@@ -177,7 +227,8 @@ export function AddPatientForm({ onSubmit, onCancel, todaysVisits }: AddPatientF
         <Input
           id="add-patient-name"
           placeholder="Patient name"
-          className="h-12 text-base"
+          readOnly={identityLocked}
+          className={cn("h-12 text-base", identityLocked && "bg-muted text-muted-foreground")}
           {...form.register("name")}
         />
         {form.formState.errors.name && (
@@ -193,7 +244,8 @@ export function AddPatientForm({ onSubmit, onCancel, todaysVisits }: AddPatientF
         <Input
           id="add-patient-address"
           placeholder="Patient address"
-          className="h-12 text-base"
+          readOnly={identityLocked}
+          className={cn("h-12 text-base", identityLocked && "bg-muted text-muted-foreground")}
           {...form.register("address")}
         />
         {form.formState.errors.address && (
@@ -214,6 +266,49 @@ export function AddPatientForm({ onSubmit, onCancel, todaysVisits }: AddPatientF
           invalid={attempted && !shift}
         />
       </div>
+
+      {identityLocked && (
+        <p className="-mt-2 text-xs text-muted-foreground">
+          Existing patient. Details are not changed by backdated entries.
+        </p>
+      )}
+
+      {/* Visit date — old mode only. The regular flow has no date field at all
+          and therefore cannot backdate. */}
+      {isOldMode && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="add-patient-visit-date" className="text-sm font-medium">
+              <CalendarDays className="mr-1 inline" size={14} /> Visit date (optional)
+            </Label>
+            {visitDate && (
+              <button
+                type="button"
+                onClick={() => onVisitDateChange?.("")}
+                className="h-8 rounded-md px-2 text-xs font-medium text-primary hover:bg-muted"
+              >
+                Use today
+              </button>
+            )}
+          </div>
+          <input
+            id="add-patient-visit-date"
+            type="date"
+            value={visitDate}
+            max={today}
+            onChange={(e) => onVisitDateChange?.(e.target.value)}
+            className="h-12 w-full rounded-lg border border-input bg-card px-3 text-base shadow-sm transition-colors focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <p className="text-xs text-muted-foreground">
+            {isBackdating
+              ? `Will be recorded on ${formatClinicDateLong(visitDate)} (backdated)`
+              : "Will be recorded as today's visit."}
+          </p>
+          {!visitDate && (
+            <p className="text-xs text-muted-foreground">Leave empty for today.</p>
+          )}
+        </div>
+      )}
 
       {/* Weeks of medicine */}
       <div className="space-y-1.5">
@@ -239,7 +334,11 @@ export function AddPatientForm({ onSubmit, onCancel, todaysVisits }: AddPatientF
       <div className="rounded-lg border border-border bg-muted/40 p-3">
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">
-            {match ? `Returning · ${match.code}` : "New patient"}
+            {match
+              ? `Returning · ${match.code}`
+              : isOldMode
+                ? "Old patient (will be registered)"
+                : "New patient"}
           </span>
           <span className="text-lg font-bold text-primary">{formatCurrency(total)}</span>
         </div>

@@ -4,7 +4,13 @@ import { z } from "zod";
 import { getDb } from "./db";
 import { requireOperator, requireSession } from "./session.server";
 import { auditLog, patients, visits } from "./schema";
-import { FEES, MEDICINE, PHONE_INVALID_MESSAGE, PHONE_REGEX } from "./constants";
+import {
+  BACKDATED_SHIFT_TIME,
+  FEES,
+  MEDICINE,
+  PHONE_INVALID_MESSAGE,
+  PHONE_REGEX,
+} from "./constants";
 import {
   CLINIC_TZ,
   computeMedicineFee,
@@ -12,6 +18,7 @@ import {
   type DayTotals,
   type PatientIdentity,
   type Shift,
+  type ShiftTotals,
   type Visit,
   type VisitPage,
 } from "./types";
@@ -31,22 +38,66 @@ const phoneSchema = z.string().regex(PHONE_REGEX, PHONE_INVALID_MESSAGE);
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
 
 /**
+ * The regex admits impossible dates like 2026-02-31, which Postgres would
+ * reject far downstream with an unhelpful error. Round-tripping through Date
+ * catches them here instead.
+ */
+function isRealCalendarDate(value: string): boolean {
+  const [y, m, d] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(y, m - 1, d));
+  return (
+    parsed.getUTCFullYear() === y && parsed.getUTCMonth() === m - 1 && parsed.getUTCDate() === d
+  );
+}
+
+const calendarDateSchema = dateSchema.refine(isRealCalendarDate, "That date does not exist.");
+
+/**
  * Raw input only. zod strips unknown keys, so a client that tampers with the
  * payload and sends `fee` or `patientId` has those silently discarded — the
  * server is the only thing that decides them.
+ *
+ * `asOldPatient` and `visitDate` are the one exception to "the client decides
+ * nothing", and deliberately narrow ones: the first picks between two outcomes
+ * the server defines, and the second is a calendar date the server turns into
+ * an instant itself. Neither can name an amount.
  */
-const draftSchema = z.object({
-  phone: phoneSchema,
-  name: z.string().trim().min(2),
-  address: z.string().trim().min(2),
-  shift: z.enum(["morning", "evening"]),
-  // A week count, not money. Any client-sent fee is dropped by this parse.
-  medicineWeeks: z.number().int().min(0).max(MEDICINE.maxWeeks).optional(),
-});
+const draftSchema = z
+  .object({
+    phone: phoneSchema,
+    name: z.string().trim().min(2),
+    address: z.string().trim().min(2),
+    shift: z.enum(["morning", "evening"]),
+    // A week count, not money. Any client-sent fee is dropped by this parse.
+    medicineWeeks: z.number().int().min(0).max(MEDICINE.maxWeeks).optional(),
+    /** Bill an unrecognised phone as returning instead of new. */
+    asOldPatient: z.boolean().optional(),
+    /** Only meaningful alongside asOldPatient — see the refinement below. */
+    visitDate: calendarDateSchema.optional(),
+  })
+  .refine((d) => !d.visitDate || d.asOldPatient === true, {
+    // Backdating is a property of the old-patient flow. Allowing it on the
+    // regular path would let the everyday dialog rewrite history by accident.
+    message: "A visit date can only be set when adding an old patient.",
+    path: ["visitDate"],
+  });
 
 /** Matches a visit's Asia/Dhaka calendar date, independent of the viewer's timezone. */
 function onClinicDate(date: string): SQL {
   return sql`(${visits.visitAt} AT TIME ZONE ${CLINIC_TZ})::date = ${date}::date`;
+}
+
+/**
+ * The instant a backdated visit is filed under: the chosen calendar date at the
+ * shift's nominal hour, read as Asia/Dhaka wall-clock time.
+ *
+ * Built by Postgres rather than in JS so it goes through the same timezone
+ * database as every query that reads it back, instead of assuming a fixed +06
+ * offset that would be wrong for any historical period where it differed.
+ */
+function clinicInstant(date: string, shift: Shift): SQL {
+  const stamp = `${date} ${BACKDATED_SHIFT_TIME[shift]}:00`;
+  return sql`(${stamp}::timestamp AT TIME ZONE ${CLINIC_TZ})`;
 }
 
 function toVisit(row: {
@@ -61,6 +112,9 @@ function toVisit(row: {
   medicineFee: number;
   isNewPatient: boolean;
   visitAt: Date;
+  legacyEntry: boolean;
+  backdated: boolean;
+  createdAt: Date;
   recordedBy: string;
 }): Visit {
   return {
@@ -75,9 +129,32 @@ function toVisit(row: {
     medicineFee: row.medicineFee,
     isNewPatient: row.isNewPatient,
     visitAt: row.visitAt.toISOString(),
+    legacyEntry: row.legacyEntry,
+    backdated: row.backdated,
+    createdAt: row.createdAt.toISOString(),
     recordedBy: row.recordedBy,
   };
 }
+
+/** The row shape every list query selects — kept in one place so the table, the
+ *  report and the write path can never drift into returning different fields. */
+const visitColumns = {
+  id: visits.id,
+  code: patients.code,
+  name: patients.name,
+  phone: patients.phone,
+  address: patients.address,
+  shift: visits.shift,
+  fee: visits.fee,
+  medicineWeeks: visits.medicineWeeks,
+  medicineFee: visits.medicineFee,
+  isNewPatient: visits.isNewPatient,
+  visitAt: visits.visitAt,
+  legacyEntry: visits.legacyEntry,
+  backdated: visits.backdated,
+  createdAt: visits.createdAt,
+  recordedBy: visits.recordedBy,
+} as const;
 
 /* ------------------------------------------------------------------ */
 /* lookupByPhone                                                       */
@@ -122,20 +199,48 @@ export const lookupByPhone = createServerFn({ method: "GET" })
  * server-side session, never from the request: the payload has no field for it,
  * and zod drops anything extra, so there is nothing a tampered client could send
  * that would change who a visit is attributed to.
+ *
+ * "Add Old Patients" adds one branch and changes nothing else. It answers a
+ * single question differently — whether a phone the clinic has never recorded
+ * belongs to a new patient or to someone treated for years before this system
+ * existed — and that answer feeds the same fee rules as always.
  */
 export const createVisit = createServerFn({ method: "POST" })
   .inputValidator((input: { draft: unknown }) => z.object({ draft: draftSchema }).parse(input))
   .handler(async ({ data }): Promise<Visit> => {
     const { draft } = data;
+    const asOldPatient = draft.asOldPatient === true;
     const operator = await requireOperator();
     const actor = operator.displayName;
     const db = getDb();
+
+    // Resolve the date before opening the transaction: a rejected date should
+    // never have started one. Comparing YYYY-MM-DD strings is a correct date
+    // comparison, and "today" is the clinic's today, not the browser's.
+    const today = todayInClinicTz();
+    let backdated = false;
+    let visitAt: SQL | undefined;
+
+    if (draft.visitDate) {
+      if (draft.visitDate > today) {
+        throw new Error("A visit cannot be recorded for a future date.");
+      }
+      if (draft.visitDate < today) {
+        // Earlier than today: file it under that day at the shift's nominal hour.
+        backdated = true;
+        visitAt = clinicInstant(draft.visitDate, draft.shift);
+      }
+      // Exactly today is treated as no date at all: the real clock time is
+      // better than a nominal one, and the row is not historical.
+    }
 
     return db.transaction(async (tx) => {
       let patient = (
         await tx.select().from(patients).where(eq(patients.phone, draft.phone)).limit(1)
       )[0];
-      let isNewPatient = false;
+      // Distinct from `isNewPatient`, which is a billing verdict: this records
+      // whether THIS request created the patient row.
+      let createdNow = false;
 
       if (!patient) {
         // onConflictDoNothing rather than a bare insert: if a concurrent submit
@@ -155,7 +260,7 @@ export const createVisit = createServerFn({ method: "POST" })
 
         if (inserted) {
           patient = inserted;
-          isNewPatient = true;
+          createdNow = true;
           await tx.insert(auditLog).values({
             entity: "patient",
             entityId: patient.id,
@@ -174,9 +279,32 @@ export const createVisit = createServerFn({ method: "POST" })
         }
       }
 
+      /**
+       * The billing verdict, and the only place it is decided.
+       *
+       * A phone already on file is always a returning patient, whatever the
+       * request asks for — so "Add Old Patients" can never create a second
+       * record for someone, nor downgrade a known patient's history. Only a
+       * genuinely unrecognised phone is affected by the flag, and then only to
+       * choose between two rules the server already owned.
+       */
+      const isNewPatient = createdNow && !asOldPatient;
+      // The one case that is true: a record created now, billed as returning.
+      const legacyEntry = createdNow && asOldPatient;
+
       // Identity edits persist forward: a corrected name/address at the desk
       // becomes the patient's record, so their next visit auto-fills with it.
-      if (!isNewPatient && (patient.name !== draft.name || patient.address !== draft.address)) {
+      //
+      // Except when backdating. An old visit carries old details, and letting it
+      // write them back would silently undo a more recent correction — the last
+      // entry typed would win over the most recently true. Differences in a
+      // backdated request are therefore ignored outright, including ones a
+      // tampered client sends deliberately.
+      if (
+        !createdNow &&
+        !backdated &&
+        (patient.name !== draft.name || patient.address !== draft.address)
+      ) {
         const before = patient;
         const [updated] = await tx
           .update(patients)
@@ -206,17 +334,27 @@ export const createVisit = createServerFn({ method: "POST" })
         .values({
           patientId: patient.id,
           shift: draft.shift,
-          // Appointment fee: unchanged, computed exactly as before.
+          // Appointment fee: unchanged, computed exactly as before. An old
+          // patient reaches this as isNewPatient === false, so they pay ৳300
+          // through the existing rule rather than through a second one.
           fee: isNewPatient ? FEES.newPatient : FEES.existingPatient,
           // Medicine: recomputed here from the raw week count. A new patient's
-          // first week is free; a returning patient pays for every week.
+          // first week is free; a returning patient — including an old one —
+          // pays for every week.
           medicineWeeks,
           medicineFee: computeMedicineFee(medicineWeeks, isNewPatient),
           isNewPatient,
+          legacyEntry,
+          backdated,
+          // Left unset for a normal visit so the column default (now()) applies.
+          ...(visitAt ? { visitAt } : {}),
           recordedBy: actor,
         })
         .returning();
 
+      // `after` is the stored row, so legacy_entry, backdated and visit_at are
+      // all captured. `at` defaults to now() — the real entry time, which stays
+      // truthful even when visit_at points at a past day.
       await tx.insert(auditLog).values({
         entity: "visit",
         entityId: visit.id,
@@ -228,6 +366,8 @@ export const createVisit = createServerFn({ method: "POST" })
       return toVisit({
         id: visit.id,
         code: patient.code,
+        // The stored patient, never the submitted draft — so a backdated entry
+        // reports the details actually on file.
         name: patient.name,
         phone: patient.phone,
         address: patient.address,
@@ -237,6 +377,9 @@ export const createVisit = createServerFn({ method: "POST" })
         medicineFee: visit.medicineFee,
         isNewPatient: visit.isNewPatient,
         visitAt: visit.visitAt,
+        legacyEntry: visit.legacyEntry,
+        backdated: visit.backdated,
+        createdAt: visit.createdAt,
         recordedBy: visit.recordedBy,
       });
     });
@@ -303,24 +446,15 @@ export const listVisits = createServerFn({ method: "GET" })
     const page = Math.min(Math.max(1, data.page ?? 1), totalPages);
 
     const rows = await db
-      .select({
-        id: visits.id,
-        code: patients.code,
-        name: patients.name,
-        phone: patients.phone,
-        address: patients.address,
-        shift: visits.shift,
-        fee: visits.fee,
-        medicineWeeks: visits.medicineWeeks,
-        medicineFee: visits.medicineFee,
-        isNewPatient: visits.isNewPatient,
-        visitAt: visits.visitAt,
-        recordedBy: visits.recordedBy,
-      })
+      .select(visitColumns)
       .from(visits)
       .innerJoin(patients, eq(visits.patientId, patients.id))
       .where(where)
-      .orderBy(desc(visits.visitAt))
+      // Backdated rows share an identical nominal visit_at whenever two land on
+      // the same date and shift, so id breaks the tie. Without it the database
+      // is free to return them in a different order on each page load, which
+      // can drop or repeat a row across pagination boundaries.
+      .orderBy(desc(visits.visitAt), desc(visits.id))
       .limit(pageSize)
       .offset((page - 1) * pageSize);
 
@@ -351,24 +485,13 @@ export const listDayVisits = createServerFn({ method: "GET" })
     const date = data.date ?? todayInClinicTz();
 
     const rows = await db
-      .select({
-        id: visits.id,
-        code: patients.code,
-        name: patients.name,
-        phone: patients.phone,
-        address: patients.address,
-        shift: visits.shift,
-        fee: visits.fee,
-        medicineWeeks: visits.medicineWeeks,
-        medicineFee: visits.medicineFee,
-        isNewPatient: visits.isNewPatient,
-        visitAt: visits.visitAt,
-        recordedBy: visits.recordedBy,
-      })
+      .select(visitColumns)
       .from(visits)
       .innerJoin(patients, eq(visits.patientId, patients.id))
       .where(and(eq(visits.voided, false), onClinicDate(date)))
-      .orderBy(asc(visits.visitAt))
+      // id breaks ties between backdated rows sharing a nominal time, so the
+      // printed report lists them in a stable, repeatable order.
+      .orderBy(asc(visits.visitAt), asc(visits.id))
       .limit(REPORT_MAX_ROWS);
 
     return rows.map(toVisit);
@@ -399,21 +522,32 @@ export const getDayTotals = createServerFn({ method: "GET" })
       .where(and(eq(visits.voided, false), onClinicDate(date)))
       .groupBy(visits.shift, visits.isNewPatient);
 
+    const emptyShift = (): ShiftTotals => ({
+      patients: 0,
+      fees: 0,
+      newPatients: 0,
+      returningPatients: 0,
+    });
+
     const totals: DayTotals = {
       date,
-      all: { patients: 0, fees: 0 },
-      morning: { patients: 0, fees: 0 },
-      evening: { patients: 0, fees: 0 },
+      all: emptyShift(),
+      morning: emptyShift(),
+      evening: emptyShift(),
       newPatients: 0,
       returningPatients: 0,
     };
 
+    // The query already groups by shift AND is_new_patient, so the per-shift
+    // new/returning split is free here — it just used to be collapsed away.
     for (const row of grouped) {
       const bucket = row.shift === "morning" ? totals.morning : totals.evening;
-      bucket.patients += row.patients;
-      bucket.fees += row.fees;
-      totals.all.patients += row.patients;
-      totals.all.fees += row.fees;
+      for (const target of [bucket, totals.all]) {
+        target.patients += row.patients;
+        target.fees += row.fees;
+        if (row.isNewPatient) target.newPatients += row.patients;
+        else target.returningPatients += row.patients;
+      }
       if (row.isNewPatient) totals.newPatients += row.patients;
       else totals.returningPatients += row.patients;
     }
