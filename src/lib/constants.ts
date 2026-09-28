@@ -12,6 +12,19 @@ export const MEDICINE = {
   maxWeeks: 12,
 } as const;
 
+/**
+ * The name every write is attributed to.
+ *
+ * The site has one shared login and no per-person identification, so there is
+ * nothing truthful to put in `recorded_by` beyond "this clinic". Stamping one
+ * fixed name is honest about that; inventing a person would not be. The column
+ * is still written server-side and never accepted from the client.
+ *
+ * Change it here and all future rows follow. Rows written before a change keep
+ * whatever name they were stamped with, which is the point of an audit trail.
+ */
+export const RECORDER_NAME = "Clinic";
+
 export const SHIFT_OPTIONS = ["morning", "evening"] as const;
 export type Shift = (typeof SHIFT_OPTIONS)[number];
 

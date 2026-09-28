@@ -68,8 +68,6 @@ export function PatientCard({ visit }: PatientCardProps) {
           <span>{formatDate(visit.visitAt)}</span>
         </div>
 
-        <p className="mt-2 text-xs text-muted-foreground">Recorded by {visit.recordedBy}</p>
-
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}

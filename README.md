@@ -57,27 +57,25 @@ bun run build           # production build into .output/
 
 ## Authentication
 
-Two separate questions, deliberately decoupled:
-
-| Question | Answered by | Stored in |
-|---|---|---|
-| Can this browser get in? | the one shared password | `site_auth` (a PBKDF2 digest) |
-| Who is at the desk? | the operator picker | the server-side session row |
-
-After signing in you pick your name from the `operators` roster before you can
-do anything else. That choice is written into the session **on the server**, and
-it is the only source of a visit's `recorded_by` — nothing the browser sends can
-influence it. A "Switch" control in the navbar hands the desk over to the next
-shift without re-entering the password.
+One shared password for the whole clinic, and nothing else. There is no
+username, no per-person account and no name to choose — everyone who signs in is
+the same user, and signing in lands straight on the homepage.
 
 Sessions are rows in `sessions`, referenced by an opaque random token in an
 httpOnly cookie. Logging out deletes the row, so the cookie cannot be replayed.
+Every server function checks for a valid session before doing anything.
 
-### Managing operators
+### Who visits are recorded under
 
-The roster is plain data — add, rename or deactivate rows in the `operators`
-table. Operators have no passwords of their own; setting `active = false`
-removes a name from the picker and ends any session using it.
+Each visit stores a `recorded_by` value, decided server-side and never accepted
+from the browser. With a single shared login there is no way to tell who was at
+the desk, so every new row is stamped with one fixed name — `RECORDER_NAME` in
+`src/lib/constants.ts`, currently "Clinic". Change it there and future rows
+follow; rows already written keep the name they were stamped with, which is what
+makes the trail worth keeping.
+
+The value is stored but no longer displayed: it does not appear in the visit
+table, the mobile cards or the printed report.
 
 ## Features
 
@@ -99,7 +97,8 @@ removes a name from the picker and ends any session using it.
   API, chosen so the production build has no Node-only or native dependency.
 - Every server function rejects calls without a valid session, so the redirect to
   `/login` is convenience rather than the actual protection.
-- One shared credential means no per-person accountability at the login layer —
-  attribution comes from the operator picker, which is cooperative, not enforced.
-  There is also no login rate limiting; PBKDF2's cost is the only brake on
-  guessing. Choose a strong password accordingly.
+- One shared credential means there is no per-person accountability at all: the
+  system can prove a visit was recorded, not who recorded it. Treat `audit_log`
+  as a record of what happened, not of whom to hold responsible.
+- There is no login rate limiting; PBKDF2's cost is the only brake on guessing.
+  Choose a strong password accordingly.

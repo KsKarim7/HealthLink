@@ -8,7 +8,6 @@ import { PatientTable } from "@/components/PatientTable";
 import { PatientCardList } from "@/components/PatientCard";
 import { Pagination } from "@/components/Pagination";
 import { AddPatientModal } from "@/components/AddPatientModal";
-import { OperatorPicker } from "@/components/OperatorPicker";
 import { PrintDayReport } from "@/components/PrintDayReport";
 import { Button } from "@/components/ui/button";
 import { Printer, Loader2 } from "lucide-react";
@@ -40,11 +39,8 @@ function HomePage() {
   // must never change the number of hooks between renders.
   const {
     isAuthenticated,
-    operator,
     isLoading: authLoading,
     logout,
-    selectOperator,
-    switchOperator,
     refresh: refreshSession,
   } = useAuth();
   const navigate = useNavigate();
@@ -57,8 +53,6 @@ function HomePage() {
   const [addOpen, setAddOpen] = useState(false);
   // Which flow the one dialog is running: the everyday one, or old patients.
   const [addMode, setAddMode] = useState<"new" | "old">("new");
-  // Set by the navbar's Switch control: reopens the picker mid-session.
-  const [switching, setSwitching] = useState(false);
   const [totalsToken, setTotalsToken] = useState(0);
   // Full-day rows for the printable report — fetched on demand, unpaginated,
   // and deliberately independent of the on-screen shift/page/search state.
@@ -110,32 +104,11 @@ function HomePage() {
     );
   }
 
-  // Signed in but nameless: the picker comes before the homepage, so no visit
-  // can ever be recorded without an operator behind it. The same screen handles
-  // an explicit Switch, which only differs by having something to cancel back to.
-  if (!operator || switching) {
-    return (
-      <OperatorPicker
-        current={operator}
-        onSelect={async (operatorId) => {
-          if (operator) {
-            await switchOperator(operatorId);
-            setSwitching(false);
-          } else {
-            await selectOperator(operatorId);
-          }
-        }}
-        onCancel={operator ? () => setSwitching(false) : undefined}
-      />
-    );
-  }
-
-  // Plain handlers (not hooks) — safe to declare after the guard, and `operator`
-  // is narrowed to non-null here.
+  // Plain handlers, not hooks — safe to declare after the auth guard above.
   const handleAddPatient = async (draft: VisitDraft): Promise<Visit> => {
-    // The server is the sole authority on code/fee/isNewPatient/visit_at and now
-    // recorded_by too — it reads the operator from the session, so there is
-    // nothing to send. The toast reports the record it actually stored.
+    // The server is the sole authority on code/fee/isNewPatient/visit_at and
+    // recorded_by, so there is nothing about them to send. The toast reports the
+    // record it actually stored.
     const saved = await createVisit({ data: { draft } });
     refresh();
     setTotalsToken((t) => t + 1);
@@ -223,8 +196,6 @@ function HomePage() {
           setPage(1);
         }}
         onLogout={() => void handleLogout()}
-        operator={operator}
-        onSwitchOperator={() => setSwitching(true)}
       />
 
       <main className="flex-1 p-4 pb-28 md:px-6 md:pb-6 lg:px-8">

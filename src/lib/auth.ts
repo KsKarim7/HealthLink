@@ -7,23 +7,16 @@
  * renders and the sentinel used to recognise an expired session.
  */
 
-/** A name from the `operators` roster, as offered by the picker. */
-export interface OperatorOption {
-  id: number;
-  displayName: string;
-}
-
 /**
- * What the server says about the current browser. `authenticated` means the
- * shared password was entered; `operator` is null until a name is picked, and
- * that gap is exactly what forces the picker screen.
+ * What the server says about the current browser, and the whole of it: everyone
+ * who knows the shared password is the same user, so there is nothing else to
+ * report. Signing in leads straight to the homepage.
  */
 export interface SessionState {
   authenticated: boolean;
-  operator: OperatorOption | null;
 }
 
-export const SIGNED_OUT: SessionState = { authenticated: false, operator: null };
+export const SIGNED_OUT: SessionState = { authenticated: false };
 
 /**
  * Prefix on every "you are not signed in" error a server function throws. Server

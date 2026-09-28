@@ -41,7 +41,9 @@ export function PatientRow({ visit, tabletMode = false }: PatientRowProps) {
       <TableCell className={tabletMode ? "hidden lg:table-cell" : ""}>{visit.phone}</TableCell>
       <TableCell className={tabletMode ? "hidden lg:table-cell" : ""}>
         <div className="flex items-center gap-2">
-          <span className="max-w-[12rem] truncate">{visit.address}</span>
+          {/* Wider since the Recorded by column went: the freed width goes to the
+              address, which is the column that was actually being truncated. */}
+          <span className="max-w-[18rem] truncate">{visit.address}</span>
           {tabletMode && (
             <button
               type="button"
@@ -72,7 +74,6 @@ export function PatientRow({ visit, tabletMode = false }: PatientRowProps) {
           {visit.shift === "morning" ? "Morning" : "Evening"}
         </Badge>
       </TableCell>
-      <TableCell className="whitespace-nowrap text-muted-foreground">{visit.recordedBy}</TableCell>
       {/* Total charged, with the appointment/medicine split underneath so the
           week count is visible without widening the table or hiding it behind a click. */}
       <TableCell className="text-right">

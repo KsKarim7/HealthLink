@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 
-// One shared credential for the whole clinic, so there is no username to ask
-// for. Who you are is chosen after signing in, on the operator picker.
+// One shared credential for the whole clinic: no username to ask for, and no
+// identity step after it — signing in lands straight on the homepage.
 const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
@@ -36,8 +36,7 @@ function LoginPage() {
     defaultValues: { password: "" },
   });
 
-  // Send an already-authenticated visitor home from an effect, not during
-  // render. "/" then shows the operator picker if no name has been chosen.
+  // Send an already-authenticated visitor home from an effect, not during render.
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
       navigate({ to: "/", replace: true });
@@ -114,9 +113,6 @@ function LoginPage() {
           </Button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          You'll choose your name after signing in.
-        </p>
       </div>
     </div>
   );

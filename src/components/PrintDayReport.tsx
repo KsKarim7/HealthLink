@@ -70,14 +70,13 @@ function ShiftBlock({
             <th>Phone</th>
             <th>Address</th>
             <th>Time</th>
-            <th>Recorded by</th>
             <th className="num">Charged</th>
           </tr>
         </thead>
         <tbody>
           {visits.length === 0 ? (
             <tr>
-              <td colSpan={7} className="empty-row">
+              <td colSpan={6} className="empty-row">
                 No {title.toLowerCase()} visits recorded on this date.
               </td>
             </tr>
@@ -96,7 +95,6 @@ function ShiftBlock({
                   {time.primary}
                   {time.secondary && <span className="split">{time.secondary}</span>}
                 </td>
-                <td>{v.recordedBy}</td>
                 <td className="num">
                   {formatCurrency(totalCharged(v))}
                   {v.medicineWeeks > 0 && (

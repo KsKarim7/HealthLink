@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { and, asc, count, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "./db";
-import { requireOperator, requireSession } from "./session.server";
+import { requireSession } from "./session.server";
 import { auditLog, patients, visits } from "./schema";
 import {
   BACKDATED_SHIFT_TIME,
@@ -10,6 +10,7 @@ import {
   MEDICINE,
   PHONE_INVALID_MESSAGE,
   PHONE_REGEX,
+  RECORDER_NAME,
 } from "./constants";
 import {
   CLINIC_TZ,
@@ -30,8 +31,8 @@ const PAGE_SIZE = 10;
  *
  * The redirect to /login is a convenience for the person at the desk, not a
  * protection: these endpoints are reachable directly over HTTP, so the guard has
- * to live here. Reads require a signed-in session; the write additionally
- * requires an operator to have been picked, since that is what it stamps.
+ * to live here. Reads and writes alike require nothing more than a valid
+ * session, since the site has a single shared login.
  */
 
 const phoneSchema = z.string().regex(PHONE_REGEX, PHONE_INVALID_MESSAGE);
@@ -195,10 +196,10 @@ export const lookupByPhone = createServerFn({ method: "GET" })
  * Fee, patient code, is_new_patient and visit_at are all decided here — this is
  * the single place they are assigned (the Phase 0 invariant, moved server-side).
  *
- * `recorded_by` now joins that list. It comes from the operator stored in the
- * server-side session, never from the request: the payload has no field for it,
- * and zod drops anything extra, so there is nothing a tampered client could send
- * that would change who a visit is attributed to.
+ * `recorded_by` is in that list too. It is the fixed RECORDER_NAME, written
+ * here rather than taken from the request: the payload has no field for it, and
+ * zod drops anything extra, so there is nothing a tampered client could send
+ * that would change what a visit is attributed to.
  *
  * "Add Old Patients" adds one branch and changes nothing else. It answers a
  * single question differently — whether a phone the clinic has never recorded
@@ -210,8 +211,9 @@ export const createVisit = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<Visit> => {
     const { draft } = data;
     const asOldPatient = draft.asOldPatient === true;
-    const operator = await requireOperator();
-    const actor = operator.displayName;
+    await requireSession();
+    // One shared login means one attribution. Decided here, never sent.
+    const actor = RECORDER_NAME;
     const db = getDb();
 
     // Resolve the date before opening the transaction: a rejected date should

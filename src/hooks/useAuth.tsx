@@ -11,21 +11,15 @@ import {
   getSessionState,
   login as loginFn,
   logout as logoutFn,
-  selectOperator as selectOperatorFn,
-  switchOperator as switchOperatorFn,
 } from "@/lib/auth.server";
-import { SIGNED_OUT, type OperatorOption, type SessionState } from "@/lib/auth";
+import { SIGNED_OUT, type SessionState } from "@/lib/auth";
 
 interface AuthContextValue {
   /** Null until the first session check resolves; never read while isLoading. */
   session: SessionState | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  /** The operator this session records visits as, or null if none picked yet. */
-  operator: OperatorOption | null;
   login: (password: string) => Promise<void>;
-  selectOperator: (operatorId: number) => Promise<void>;
-  switchOperator: (operatorId: number) => Promise<void>;
   logout: () => Promise<void>;
   /** Re-reads the server session, e.g. after a call failed as unauthenticated. */
   refresh: () => Promise<void>;
@@ -34,9 +28,9 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 /**
- * Mirrors the real server session. Nothing here is persisted client-side: this
- * is a cache of what the server last said, and the server is asked again on
- * every mount.
+ * Mirrors the real server session, which now answers exactly one question:
+ * signed in, or not. Nothing here is persisted client-side — this is a cache of
+ * what the server last said, and the server is asked again on every mount.
  *
  * The Phase 0 hydration rule still holds. The server render and the first client
  * render both produce `isLoading: true` with no session, because the session
@@ -69,14 +63,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(await loginFn({ data: { password } }));
   }, []);
 
-  const selectOperator = useCallback(async (operatorId: number) => {
-    setSession(await selectOperatorFn({ data: { operatorId } }));
-  }, []);
-
-  const switchOperator = useCallback(async (operatorId: number) => {
-    setSession(await switchOperatorFn({ data: { operatorId } }));
-  }, []);
-
   const logout = useCallback(async () => {
     try {
       await logoutFn();
@@ -91,14 +77,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       isLoading,
       isAuthenticated: session?.authenticated === true,
-      operator: session?.operator ?? null,
       login,
-      selectOperator,
-      switchOperator,
       logout,
       refresh,
     }),
-    [session, isLoading, login, selectOperator, switchOperator, logout, refresh],
+    [session, isLoading, login, logout, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

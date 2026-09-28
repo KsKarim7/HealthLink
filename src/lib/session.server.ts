@@ -1,17 +1,19 @@
 import { deleteCookie, getCookie, setCookie } from "@tanstack/react-start/server";
-import { and, eq, lt, or, isNull } from "drizzle-orm";
+import { eq, lt, or, isNull } from "drizzle-orm";
 import { getDb } from "./db";
-import { operators, sessions } from "./schema";
-import { AUTH_ERROR_MESSAGE, type OperatorOption } from "./auth";
+import { sessions } from "./schema";
+import { AUTH_ERROR_MESSAGE } from "./auth";
 
 /**
- * SERVER ONLY. Session storage and the guards every data function runs.
+ * SERVER ONLY. Session storage and the guard every data function runs.
  *
- * The browser holds one opaque random token in an httpOnly cookie. Everything
- * that matters — whether this browser is signed in, and which operator it is
- * acting as — lives in the `sessions` row keyed by the SHA-256 of that token.
- * The client can therefore present a session but can never describe one, which
- * is what lets `recorded_by` be trusted.
+ * The browser holds one opaque random token in an httpOnly cookie; the
+ * `sessions` row keyed by the SHA-256 of that token is what says the browser is
+ * signed in. The client can present a session but can never describe one.
+ *
+ * A session carries no identity beyond "signed in". The `sessions.operator_id`
+ * column still exists and is simply never read — rows written while the operator
+ * picker existed keep their value and keep working unchanged.
  *
  * This replaces the Phase 0/1 demo auth, where a `dpas_auth` object in
  * localStorage was the entire proof of identity and could simply be typed into
@@ -31,7 +33,6 @@ const TOKEN_BYTES = 32;
 export interface ActiveSession {
   /** The stored id — the hash of the cookie token, never the token. */
   id: string;
-  operator: OperatorOption | null;
 }
 
 export function unauthenticated(): Error {
@@ -73,14 +74,13 @@ function writeCookie(token: string): void {
   });
 }
 
-/** Starts a brand-new session with no operator attributed yet. */
+/** Starts a brand-new session. */
 export async function createSession(): Promise<void> {
   const db = getDb();
   const token = newToken();
 
   await db.insert(sessions).values({
     id: await tokenToId(token),
-    operatorId: null,
     expiresAt: expiryFromNow(),
   });
 
@@ -98,17 +98,15 @@ export async function readSession(): Promise<ActiveSession | null> {
   const db = getDb();
   const id = await tokenToId(token);
 
+  // No join to `operators`: a session is valid on its own, so an old row that
+  // still references an operator — or a deactivated one — is unaffected.
   const [row] = await db
     .select({
       id: sessions.id,
-      operatorId: sessions.operatorId,
       expiresAt: sessions.expiresAt,
       lastSeenAt: sessions.lastSeenAt,
-      operatorName: operators.displayName,
-      operatorActive: operators.active,
     })
     .from(sessions)
-    .leftJoin(operators, eq(sessions.operatorId, operators.id))
     .where(eq(sessions.id, id))
     .limit(1);
 
@@ -131,14 +129,7 @@ export async function readSession(): Promise<ActiveSession | null> {
     writeCookie(token);
   }
 
-  // An operator deactivated mid-session stops being a valid attribution, so the
-  // picker is shown again rather than silently recording a retired name.
-  const operator =
-    row.operatorId !== null && row.operatorName !== null && row.operatorActive
-      ? { id: row.operatorId, displayName: row.operatorName }
-      : null;
-
-  return { id: row.id, operator };
+  return { id: row.id };
 }
 
 /** Every data function's front door: a live session, or a thrown auth error. */
@@ -148,44 +139,7 @@ export async function requireSession(): Promise<ActiveSession> {
   return session;
 }
 
-/**
- * For writes. Returns the operator recorded IN THE SESSION — the only accepted
- * source for `recorded_by`. Nothing the client sends is consulted.
- */
-export async function requireOperator(): Promise<OperatorOption> {
-  const session = await requireSession();
-  if (!session.operator) {
-    throw new Error("Pick your name before recording anything.");
-  }
-  return session.operator;
-}
-
-/**
- * Writes the operator choice into the session row. Shared by `selectOperator`
- * and `switchOperator` — a shift handoff is the same operation as the first
- * pick, just without a fresh login.
- */
-export async function setSessionOperator(operatorId: number): Promise<OperatorOption> {
-  const session = await requireSession();
-  const db = getDb();
-
-  const [operator] = await db
-    .select()
-    .from(operators)
-    .where(and(eq(operators.id, operatorId), eq(operators.active, true)))
-    .limit(1);
-
-  if (!operator) throw new Error("That name is not on the operator list.");
-
-  await db
-    .update(sessions)
-    .set({ operatorId: operator.id, lastSeenAt: new Date() })
-    .where(eq(sessions.id, session.id));
-
-  return { id: operator.id, displayName: operator.displayName };
-}
-
-/** Destroys the session row and the cookie: both the login and the operator. */
+/** Destroys the session row and the cookie, so neither can be reused. */
 export async function destroySession(): Promise<void> {
   const token = getCookie(SESSION_COOKIE);
   if (token) {
