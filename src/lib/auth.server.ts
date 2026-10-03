@@ -8,6 +8,7 @@ import {
   verifyPassword,
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
+  PBKDF2_ITERATIONS,
 } from "./password.js";
 import {
   createSession,
@@ -31,9 +32,18 @@ import { SIGNED_OUT, type SessionState } from "./auth";
  * of any string. When `site_auth` is empty, login still spends the full PBKDF2
  * cost against this, so "no password configured yet" and "wrong password" are
  * indistinguishable from the outside, by both response and timing.
+ *
+ * The iteration count is taken from PBKDF2_ITERATIONS rather than written in
+ * literally: pinning it would mean this dummy and a real stored hash cost
+ * different amounts of CPU, and the difference in response time would itself
+ * reveal whether a password has been configured.
  */
-const ABSENT_PASSWORD_HASH =
-  "pbkdf2-sha256$600000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+const ABSENT_PASSWORD_HASH = [
+  "pbkdf2-sha256",
+  PBKDF2_ITERATIONS,
+  "AAAAAAAAAAAAAAAAAAAAAA==",
+  "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+].join("$");
 
 /* ------------------------------------------------------------------ */
 /* getSessionState                                                     */

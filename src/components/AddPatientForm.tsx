@@ -12,13 +12,14 @@ import {
   Stethoscope,
   Pill,
   CalendarDays,
+  Hash,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ShiftToggle } from "./ShiftToggle";
 import { WeeksStepper } from "./WeeksStepper";
-import { usePatientLookup } from "@/hooks/usePatientLookup";
+import { usePatientCodeLookup, usePatientLookup } from "@/hooks/usePatientLookup";
 import { cn } from "@/lib/utils";
 import { MEDICINE, PHONE_INVALID_MESSAGE, PHONE_REGEX } from "@/lib/constants";
 import {
@@ -97,6 +98,13 @@ export function AddPatientForm({
 
   // One phone = one person: the lookup resolves to a single patient or nobody.
   const { match, isLoading: lookupLoading } = usePatientLookup(phone ?? "");
+
+  // The optional ID shortcut, regular mode only. Deliberately NOT part of the
+  // form schema: it is never submitted and never reaches the server as part of
+  // a visit — it only fills the phone number in, and the phone takes over from
+  // there exactly as if it had been typed by hand.
+  const [patientCode, setPatientCode] = useState("");
+  const codeLookup = usePatientCodeLookup(isOldMode ? "" : patientCode);
   // The same verdict the server will reach: a known phone is always returning,
   // and in old mode an unknown one is billed as returning too. Both sides run
   // computeFee/computeMedicineFee, so the quote matches what gets stored.
@@ -110,6 +118,28 @@ export function AddPatientForm({
   const weeks = medicineWeeks ?? 0;
   const medicineFee = computeMedicineFee(weeks, isNewPatient);
   const total = appointmentFee + medicineFee;
+
+  // An ID match fills the phone in, which hands control straight to the phone
+  // lookup below. Applied once per distinct match, tracked by code: without that
+  // guard, re-running this effect would overwrite a phone the operator had since
+  // corrected by hand.
+  const appliedCode = useRef<string | null>(null);
+  useEffect(() => {
+    const found = codeLookup.match;
+    if (!found) {
+      if (!codeLookup.isLoading && !codeLookup.searched) appliedCode.current = null;
+      return;
+    }
+    if (appliedCode.current === found.code) return;
+    appliedCode.current = found.code;
+
+    // Name and address are set here too so the fill is immediate rather than
+    // waiting on a second round-trip; the phone lookup then sets the same
+    // values again, which is harmless.
+    form.setValue("phone", found.phone, { shouldValidate: true });
+    form.setValue("name", found.name, { shouldValidate: true });
+    form.setValue("address", found.address, { shouldValidate: true });
+  }, [codeLookup.match, codeLookup.isLoading, codeLookup.searched, form]);
 
   // Auto-fill from the matched record; clear those fields again if the operator
   // edits the phone away from a match, so one patient's details never ride along
@@ -188,6 +218,43 @@ export function AddPatientForm({
 
   return (
     <form id="add-patient-form" onSubmit={handleSubmit} className="space-y-4">
+      {/* Patient ID — regular mode only, and purely a shortcut to the phone
+          number. Never autofocused: the phone field keeps that, because typing
+          a number is still the normal way in. */}
+      {!isOldMode && (
+        <div className="space-y-1.5">
+          <Label htmlFor="add-patient-code" className="text-sm font-medium">
+            <Hash className="mr-1 inline" size={14} /> Patient ID (optional)
+          </Label>
+          <div className="relative">
+            <Input
+              id="add-patient-code"
+              inputMode="numeric"
+              placeholder="PT-000042"
+              maxLength={20}
+              value={patientCode}
+              onChange={(e) => setPatientCode(e.target.value)}
+              className="h-12 pr-10 text-base"
+            />
+            {/* Same spinner/tick language as the phone field. */}
+            <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+              {codeLookup.isLoading ? (
+                <Loader2 className="animate-spin text-muted-foreground" size={18} />
+              ) : codeLookup.match ? (
+                <Check className="text-teal" size={18} />
+              ) : null}
+            </div>
+          </div>
+          {codeLookup.searched && !codeLookup.isLoading && !codeLookup.match ? (
+            <p className="text-xs text-destructive">No patient found with this ID.</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Know their ID? Enter it to pull up their info.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Phone */}
       <div className="space-y-1.5">
         <Label htmlFor="add-patient-phone" className="text-sm font-medium">

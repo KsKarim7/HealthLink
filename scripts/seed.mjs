@@ -1,17 +1,48 @@
 // Dev seed: operators + sample patients/visits spread across the last few
 // Asia/Dhaka days, so both the today-view and the date picker show data.
 //
-//   bun run db:seed            (refuses if visits already exist)
-//   bun run db:seed --force    (wipes and reseeds)
+//   bun run db:seed            (always refuses — see below)
+//   bun run db:seed --force    (wipes EVERYTHING and inserts sample data)
+//
+// --force is required unconditionally, not just when data already exists. The
+// earlier guard only tripped when `visits` was non-empty, which meant that on a
+// freshly cleared database — exactly the state a clinic is in on day one — a
+// stray `bun run db:seed` would silently fill it with fake patients. The cost of
+// being wrong is far higher than the cost of typing a flag.
 //
 // Operators are sample NAMES only — the roster, nothing more. This script never
 // touches `site_auth`, so it cannot create a usable shared password; that only
 // ever happens via `node scripts/set-site-password.mjs`, run locally.
+
+const force = process.argv.includes("--force");
+
+if (!force) {
+  console.error(
+    [
+      "",
+      "Refusing to seed.",
+      "",
+      "This script is destructive: it DELETES every patient, visit, audit record",
+      "and operator in the database, then inserts sample data in their place. It",
+      "does this whether the database is full or empty, so there is no state in",
+      "which running it by accident is harmless.",
+      "",
+      "If that is genuinely what you want:",
+      "",
+      "    bun run db:seed --force",
+      "",
+      "If this is the clinic's real database, you almost certainly do not.",
+      "Take a backup first — the Export button in the app writes both CSV files.",
+      "",
+    ].join("\n"),
+  );
+  process.exit(1);
+}
+
 process.loadEnvFile();
 
 const { neon } = await import("@neondatabase/serverless");
 const sql = neon(process.env.DATABASE_URL);
-const force = process.argv.includes("--force");
 
 const OPERATORS = ["Reception Desk", "Dr. Rahman", "Evening Desk"];
 
@@ -57,11 +88,16 @@ function dhakaDate(daysAgo) {
   return d.toISOString().slice(0, 10);
 }
 
-const existing = await sql`select count(*)::int as n from visits`;
-if (existing[0].n > 0 && !force) {
-  console.error(`Refusing to seed: visits already has ${existing[0].n} row(s). Re-run with --force to wipe and reseed.`);
-  process.exit(1);
-}
+// --force was given, so this is going ahead. Say what is being destroyed first,
+// so the number is on screen rather than only in the operator's assumptions.
+const [existing] = await sql`select
+  (select count(*) from visits)::int as visits,
+  (select count(*) from patients)::int as patients,
+  (select count(*) from audit_log)::int as audit_log`;
+console.log(
+  `--force given. Deleting ${existing.patients} patient(s), ${existing.visits} visit(s) ` +
+    `and ${existing.audit_log} audit record(s), then inserting sample data.`,
+);
 
 console.log("Clearing existing data...");
 // `sessions` is listed explicitly because it references operators: reseeding the

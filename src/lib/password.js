@@ -20,15 +20,37 @@
  */
 
 /**
- * OWASP's current floor for PBKDF2-HMAC-SHA256. Costs roughly 200ms of CPU per
- * verification, which is the point — it is what makes offline cracking of a
- * leaked hash expensive.
+ * Cost of one hash, sized to Cloudflare Workers' free-tier CPU budget rather
+ * than to maximum strength.
  *
- * Verification reads the iteration count out of the stored string, so changing
- * this constant only affects passwords set from then on; existing hashes keep
- * working. Lower it only if the deployment platform's CPU budget forces it.
+ * The free plan allows roughly 10ms of CPU for an entire request — routing,
+ * session lookup, response, everything — and exceeding it fails the request
+ * outright rather than merely running slowly. So the hash has to fit in a
+ * fraction of that, not most of it.
+ *
+ * Measured here (40 samples each, median / p95, Node 22 Web Crypto):
+ *
+ *     600,000   223ms / 255ms   OWASP's floor — ~22x the whole budget
+ *     100,000    37ms /  39ms   still ~4x over
+ *      25,000     9ms /  10ms   eats the entire budget
+ *      15,000     5.2ms / 5.8ms  no headroom left
+ *      12,000     4.3ms / 6.0ms  <- chosen
+ *      10,000     3.6ms / 4.7ms  cheaper than it needs to be
+ *
+ * 12,000 lands at about 4-5ms, leaving over half the budget for the rest of the
+ * request. Cloudflare's edge hardware may well be slower than the machine this
+ * was measured on, which is the other reason not to aim near the ceiling.
+ *
+ * What this trades away, stated plainly: an attacker holding the stored hash can
+ * test candidate passwords roughly 50x faster than at the OWASP figure. With one
+ * shared credential and no rate limiting, the password's own length is doing
+ * most of the work here regardless — choose a long one.
+ *
+ * The stored format carries its own iteration count, so this is safe to change:
+ * hashes written at 600,000 keep verifying at 600,000 until that password is
+ * next set, and only new hashes use the value below.
  */
-export const PBKDF2_ITERATIONS = 600_000;
+export const PBKDF2_ITERATIONS = 12_000;
 
 /**
  * Minimum length for the shared password, in one place.

@@ -84,6 +84,24 @@ export type VisitDraft = PatientFormData & {
   visitDate?: string;
 };
 
+/** One row of the patients export — the people, not their visits. */
+export interface PatientExportRow {
+  code: string;
+  name: string;
+  phone: string;
+  address: string;
+  /** ISO instants; rendered in Asia/Dhaka on the way into the file. */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A finished export, plus whether the row cap cut it short. */
+export interface ExportResult<TRow> {
+  rows: TRow[];
+  /** True when the safety cap was hit, so the caller can say so out loud. */
+  truncated: boolean;
+}
+
 export interface VisitPage {
   rows: Visit[];
   total: number;
@@ -219,6 +237,42 @@ function formatCalendarDate(date: string, options: Intl.DateTimeFormatOptions): 
     timeZone: "UTC",
     ...options,
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Machine-readable clinic-time formats, for CSV                        */
+/* ------------------------------------------------------------------ */
+/*
+ * Deliberately separate from the display helpers above. A spreadsheet is sorted
+ * and filtered, so it wants ISO-ish values Excel parses as real dates, not
+ * "29 Sept 2026". Everything is still rendered in Asia/Dhaka, so a row's date
+ * matches the day the clinic filed it under.
+ */
+
+/** "2026-10-03" — the Asia/Dhaka calendar date of an instant. */
+export function clinicDateOf(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: CLINIC_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
+
+/** "14:05" — 24-hour Asia/Dhaka wall-clock time, which Excel reads as a time. */
+export function clinicTimeOf(iso: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: CLINIC_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(iso));
+}
+
+/** "2026-10-03 14:05" — both at once, for the timestamp columns. */
+export function clinicDateTimeOf(iso: string | null): string {
+  if (!iso) return "";
+  return `${clinicDateOf(iso)} ${clinicTimeOf(iso)}`;
 }
 
 /** "29 Sept 2026, 10:12 am" in clinic time — when a visit was voided. */

@@ -17,6 +17,8 @@ import {
   computeMedicineFee,
   todayInClinicTz,
   type DayTotals,
+  type ExportResult,
+  type PatientExportRow,
   type PatientIdentity,
   type Shift,
   type ShiftTotals,
@@ -99,6 +101,16 @@ function onClinicDate(date: string): SQL {
 function clinicInstant(date: string, shift: Shift): SQL {
   const stamp = `${date} ${BACKDATED_SHIFT_TIME[shift]}:00`;
   return sql`(${stamp}::timestamp AT TIME ZONE ${CLINIC_TZ})`;
+}
+
+/** Visits on or after an Asia/Dhaka calendar date (inclusive). */
+function fromClinicDate(date: string): SQL {
+  return sql`(${visits.visitAt} AT TIME ZONE ${CLINIC_TZ})::date >= ${date}::date`;
+}
+
+/** Visits on or before an Asia/Dhaka calendar date (inclusive). */
+function toClinicDate(date: string): SQL {
+  return sql`(${visits.visitAt} AT TIME ZONE ${CLINIC_TZ})::date <= ${date}::date`;
 }
 
 function toVisit(row: {
@@ -193,6 +205,65 @@ export const lookupByPhone = createServerFn({ method: "GET" })
       .from(patients)
       .where(eq(patients.phone, data.phone))
       .limit(1);
+    return row ?? null;
+  });
+
+/* ------------------------------------------------------------------ */
+/* lookupByCode                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Turns whatever the operator typed into the canonical `code` value.
+ *
+ * `patients.code` is generated as 'PT-' || lpad(id, 6, '0'), so the only thing
+ * that actually varies is the number. People read an ID off a card and type it
+ * back in any of the shapes they remember it — "42", "000042", "pt-000042",
+ * with stray spaces — and all of those name the same patient. Anything that is
+ * not a prefix plus digits yields null, and a null simply finds nobody.
+ */
+function normalizeCode(input: string): string | null {
+  const cleaned = input.trim().toUpperCase().replace(/\s+/g, "");
+  if (!cleaned) return null;
+
+  // An optional "PT" with an optional separator, then the digits.
+  const match = /^(?:PT[-\s]?)?(\d+)$/.exec(cleaned);
+  if (!match) return null;
+
+  // Leading zeros are decoration: strip them, then pad back to the stored width.
+  // lpad only pads, so an id past six digits keeps its natural length.
+  const digits = match[1].replace(/^0+/, "");
+  if (!digits) return null;
+
+  return `PT-${digits.padStart(6, "0")}`;
+}
+
+/**
+ * Finds a patient by their printed ID — a convenience shortcut for the desk, not
+ * a second identity path. It only reads; everything that follows a match is
+ * driven by the phone number it fills in, exactly as if that had been typed.
+ */
+export const lookupByCode = createServerFn({ method: "GET" })
+  .inputValidator((input: { code: string }) =>
+    z.object({ code: z.string().max(40) }).parse(input),
+  )
+  .handler(async ({ data }): Promise<PatientIdentity | null> => {
+    await requireSession();
+
+    const code = normalizeCode(data.code);
+    if (!code) return null;
+
+    const [row] = await getDb()
+      .select({
+        id: patients.id,
+        code: patients.code,
+        name: patients.name,
+        phone: patients.phone,
+        address: patients.address,
+      })
+      .from(patients)
+      .where(eq(patients.code, code))
+      .limit(1);
+
     return row ?? null;
   });
 
@@ -616,6 +687,92 @@ export const listDayVisits = createServerFn({ method: "GET" })
 
     return rows.map(toVisit);
   });
+
+/* ------------------------------------------------------------------ */
+/* exportVisits / exportPatients                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Safety valve. Far above anything this clinic will produce for years, but it
+ * stops a runaway query pulling the whole table into memory — and when it does
+ * bite, the caller is told rather than handed a quietly short file.
+ */
+const EXPORT_MAX_ROWS = 50_000;
+
+/**
+ * Every visit, for backup and record-keeping. Read-only: it writes nothing,
+ * and is the one listing that deliberately INCLUDES voided rows — a backup that
+ * silently drops records is not a backup. The void columns travel with them, so
+ * a voided visit is identifiable in the file rather than invisible.
+ *
+ * `from`/`to` bound an inclusive Asia/Dhaka date range, matching how every other
+ * date filter in this file reads a visit's day.
+ */
+export const exportVisits = createServerFn({ method: "GET" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({ from: dateSchema.optional(), to: dateSchema.optional() })
+      .parse(input ?? {}),
+  )
+  .handler(async ({ data }): Promise<ExportResult<Visit>> => {
+    await requireSession();
+
+    const filters: SQL[] = [];
+    if (data.from) filters.push(fromClinicDate(data.from));
+    if (data.to) filters.push(toClinicDate(data.to));
+
+    // One row past the cap, purely to detect that the cap was reached.
+    const rows = await getDb()
+      .select(visitColumns)
+      .from(visits)
+      .innerJoin(patients, eq(visits.patientId, patients.id))
+      .where(filters.length ? and(...filters) : undefined)
+      // Same ordering rule as the other listings: backdated rows share a nominal
+      // visit_at, so id keeps the file stable between exports.
+      .orderBy(asc(visits.visitAt), asc(visits.id))
+      .limit(EXPORT_MAX_ROWS + 1);
+
+    const truncated = rows.length > EXPORT_MAX_ROWS;
+    return {
+      rows: (truncated ? rows.slice(0, EXPORT_MAX_ROWS) : rows).map(toVisit),
+      truncated,
+    };
+  });
+
+/** Every patient record — the people, not their visits. Read-only. */
+export const exportPatients = createServerFn({ method: "GET" }).handler(
+  async (): Promise<ExportResult<PatientExportRow>> => {
+    await requireSession();
+
+    const rows = await getDb()
+      .select({
+        code: patients.code,
+        name: patients.name,
+        phone: patients.phone,
+        address: patients.address,
+        createdAt: patients.createdAt,
+        updatedAt: patients.updatedAt,
+      })
+      .from(patients)
+      .orderBy(asc(patients.id))
+      .limit(EXPORT_MAX_ROWS + 1);
+
+    const truncated = rows.length > EXPORT_MAX_ROWS;
+    const kept = truncated ? rows.slice(0, EXPORT_MAX_ROWS) : rows;
+
+    return {
+      rows: kept.map((r) => ({
+        code: r.code,
+        name: r.name,
+        phone: r.phone,
+        address: r.address,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      })),
+      truncated,
+    };
+  },
+);
 
 /* ------------------------------------------------------------------ */
 /* getDayTotals                                                        */

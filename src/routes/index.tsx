@@ -10,9 +10,10 @@ import { Pagination } from "@/components/Pagination";
 import { AddPatientModal } from "@/components/AddPatientModal";
 import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { VoidVisitModal } from "@/components/VoidVisitModal";
+import { ExportDataModal } from "@/components/ExportDataModal";
 import { PrintDayReport } from "@/components/PrintDayReport";
 import { Button } from "@/components/ui/button";
-import { Printer, Loader2 } from "lucide-react";
+import { Printer, Loader2, Download } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { usePatients } from "@/hooks/usePatients";
 import { useDayTotals } from "@/hooks/useDayTotals";
@@ -60,6 +61,7 @@ function HomePage() {
   const [showVoided, setShowVoided] = useState(false);
   // The visit awaiting confirmation, or null when the dialog is closed.
   const [voidTarget, setVoidTarget] = useState<Visit | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [totalsToken, setTotalsToken] = useState(0);
   // Full-day rows for the printable report — fetched on demand, unpaginated,
   // and deliberately independent of the on-screen shift/page/search state.
@@ -289,6 +291,16 @@ function HomePage() {
                   )}
                 </Button>
               )}
+              {/* One button, not two: the export choices live in the dialog so the
+                  header keeps its day-to-day controls uncrowded. */}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setExportOpen(true)}
+                className="h-11"
+              >
+                <Download className="mr-2" size={16} /> Export
+              </Button>
               <div className="hidden md:block md:w-72">
                 <SearchBox
                   value={search}
@@ -352,6 +364,15 @@ function HomePage() {
         visit={voidTarget}
         onOpenChange={(open) => !open && setVoidTarget(null)}
         onConfirm={handleVoid}
+      />
+
+      <ExportDataModal
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        onDone={(message, detail) => {
+          setExportOpen(false);
+          toast.success(message, { description: detail });
+        }}
       />
 
       <ChangePasswordModal
